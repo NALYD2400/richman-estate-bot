@@ -1,0 +1,24 @@
+{
+  "name": "richman-discord-bot",
+  "version": "2.0.0",
+  "description": "Bot Discord officiel de Richman Estate RP — Conciergerie 24/7, Réservations, Salons Tickets & Synchronisation Web",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "fivem",
+    "roleplay",
+    "richman-estate",
+    "supabase"
+  ],
+  "author": "NALYD / Richman Estate",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5"
+  }
+}

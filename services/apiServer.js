@@ -390,7 +390,7 @@ function buildVehicleShowroom(item, isAvailable, { photoUrl, specsText, plate, v
 }
 
 // Embed + bouton showroom d'une suite (footer = ID Supabase)
-function buildSuiteShowroom(item, isAvailable, { photoUrl, specsText } = {}) {
+async function buildSuiteShowroom(item, isAvailable, { photoUrl, specsText } = {}) {
   const specs = specsText !== undefined ? specsText : (item.specs || '');
   const suiteTitle = String(item.name || 'Suite').trim();
   const resolvedPhoto = photoUrl !== undefined ? photoUrl : resolveSuitePhotoUrl(item.name, item.media_urls);
@@ -410,11 +410,12 @@ function buildSuiteShowroom(item, isAvailable, { photoUrl, specsText } = {}) {
   if (resolvedPhoto) {
     if (resolvedPhoto.startsWith('data:image/')) {
       try {
-        const match = resolvedPhoto.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+        const match = resolvedPhoto.match(/^data:image\/([a-zA-Z0-9\+\-]+);base64,(.+)$/);
         if (match) {
-          const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+          const rawExt = match[1].toLowerCase();
+          const ext = rawExt.includes('png') ? 'png' : rawExt.includes('webp') ? 'webp' : 'jpg';
           const buffer = Buffer.from(match[2], 'base64');
-          const safeId = (item.id || 'suite').slice(0, 6);
+          const safeId = (item.id || 'suite').slice(0, 8);
           const filename = `suite_${safeId}.${ext}`;
           const attachment = new AttachmentBuilder(buffer, { name: filename });
           embed.setImage(`attachment://${filename}`);
@@ -424,7 +425,23 @@ function buildSuiteShowroom(item, isAvailable, { photoUrl, specsText } = {}) {
         console.warn('[Suite Attachment Build Error]:', e.message);
       }
     } else if (resolvedPhoto.startsWith('http')) {
-      embed.setImage(resolvedPhoto);
+      try {
+        const res = await fetch(resolvedPhoto);
+        if (res.ok) {
+          const arrayBuf = await res.arrayBuffer();
+          const buffer = Buffer.from(arrayBuf);
+          const safeId = (item.id || 'suite').slice(0, 8);
+          const filename = `suite_${safeId}.jpg`;
+          const attachment = new AttachmentBuilder(buffer, { name: filename });
+          embed.setImage(`attachment://${filename}`);
+          files.push(attachment);
+        } else {
+          embed.setImage(resolvedPhoto);
+        }
+      } catch (e) {
+        console.warn('[Suite HTTP Image Fetch Error]:', e.message);
+        embed.setImage(resolvedPhoto);
+      }
     }
   }
 
@@ -1595,7 +1612,7 @@ function startApiServer(client, customPort = null) {
             // Create thread per suite
             for (const item of suites) {
               const isAvailable = (item.status === 'confirmed' || item.status === 'available');
-              const { embed: sEmbed, row: sRow, files: sFiles, suiteTitle } = buildSuiteShowroom(item, isAvailable);
+              const { embed: sEmbed, row: sRow, files: sFiles, suiteTitle } = await buildSuiteShowroom(item, isAvailable);
               const threadTitle = `🏨 ${suiteTitle.toUpperCase()}`.slice(0, 100);
               const appliedTags = getSuiteForumTagIds(availableTags, isAvailable, item.name, item.specs);
 
@@ -1646,7 +1663,7 @@ function startApiServer(client, customPort = null) {
             await supabaseService.syncItemStatus('suite', suiteId, targetDbStatus).catch(() => {});
           }
 
-          const { embed: sEmbed, row: sRow, files: sFiles, suiteTitle } = buildSuiteShowroom(item, isAvailable);
+          const { embed: sEmbed, row: sRow, files: sFiles, suiteTitle } = await buildSuiteShowroom(item, isAvailable);
 
           const isForum = channel.type === ChannelType.GuildForum;
           if (isForum) {

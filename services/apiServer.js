@@ -1406,56 +1406,94 @@ function startApiServer(client, customPort = null) {
           const discord_id = query.discord_id || (parsedBody && parsedBody.discord_id);
           const client_name = query.client_name || (parsedBody && parsedBody.client_name);
 
+          const targetGuild = client.guilds.cache.get(config.GUILD_ID) || client.guilds.cache.first();
+          const targetGuildId = targetGuild ? targetGuild.id : '1537171063715401870';
+
+          // 1. Check if Supabase booking already has ticket_channel_id
+          if (booking_id) {
+            try {
+              const bData = await supabaseService.getBookingById(booking_id);
+              if (bData && bData.ticket_channel_id) {
+                return sendJSON(200, {
+                  success: true,
+                  channelId: bData.ticket_channel_id,
+                  guildId: targetGuildId,
+                  url: `https://discord.com/channels/${targetGuildId}/${bData.ticket_channel_id}`
+                });
+              }
+            } catch (e) {}
+          }
+
+          const shortId = booking_id ? String(booking_id).slice(0, 6).toLowerCase() : '';
+          const namePart = client_name ? String(client_name).split('|')[0].trim().toLowerCase().replace(/[^a-z0-9]/g, '') : '';
+
           let foundTicketChannel = null;
-          let targetGuild = null;
 
           for (const guild of client.guilds.cache.values()) {
-            // 1. Match exact booking_id in topic
+            try {
+              await guild.channels.fetch().catch(() => {});
+            } catch (e) {}
+
+            const allChannelsAndThreads = [
+              ...guild.channels.cache.values(),
+              ...((guild.threads && guild.threads.cache) ? guild.threads.cache.values() : [])
+            ];
+
+            // 1. Check by booking_id in topic
             if (booking_id) {
-              const ch1 = guild.channels.cache.find(c => c.isTextBased() && c.topic && (
+              const ch1 = allChannelsAndThreads.find(c => c && c.topic && (
                 c.topic.includes(`booking_id:${booking_id}`) ||
                 c.topic.includes(String(booking_id)) ||
-                (String(booking_id).length >= 6 && c.topic.includes(String(booking_id).slice(0, 6)))
+                (shortId && c.topic.toLowerCase().includes(shortId))
               ));
-              if (ch1) { foundTicketChannel = ch1; targetGuild = guild; break; }
+              if (ch1) { foundTicketChannel = ch1; break; }
             }
 
-            // 2. Match discord_id in topic
-            if (discord_id) {
-              const ch2 = guild.channels.cache.find(c => c.isTextBased() && c.topic && (
+            // 2. Check by channel name containing shortId (e.g. suite-172fff)
+            if (!foundTicketChannel && shortId) {
+              const ch2 = allChannelsAndThreads.find(c => c && c.name && c.name.toLowerCase().includes(shortId));
+              if (ch2) { foundTicketChannel = ch2; break; }
+            }
+
+            // 3. Check by discord_id in topic
+            if (!foundTicketChannel && discord_id) {
+              const ch3 = allChannelsAndThreads.find(c => c && c.topic && (
                 c.topic.includes(`discord_id:${discord_id}`) ||
                 c.topic.includes(String(discord_id))
               ));
-              if (ch2) { foundTicketChannel = ch2; targetGuild = guild; break; }
+              if (ch3) { foundTicketChannel = ch3; break; }
             }
 
-            // 3. Match client name in channel name or topic
-            if (client_name) {
-              const cleanCName = String(client_name).toLowerCase().replace(/[^a-z0-9]/g, '');
-              if (cleanCName.length >= 3) {
-                const ch3 = guild.channels.cache.find(c => c.isTextBased() && (
-                  (c.name && c.name.toLowerCase().includes(cleanCName)) ||
-                  (c.topic && c.topic.toLowerCase().includes(cleanCName))
-                ));
-                if (ch3) { foundTicketChannel = ch3; targetGuild = guild; break; }
-              }
+            // 4. Check by client name in channel name or topic
+            if (!foundTicketChannel && namePart && namePart.length >= 3) {
+              const ch4 = allChannelsAndThreads.find(c => c && (
+                (c.name && c.name.toLowerCase().replace(/[^a-z0-9]/g, '').includes(namePart)) ||
+                (c.topic && c.topic.toLowerCase().replace(/[^a-z0-9]/g, '').includes(namePart))
+              ));
+              if (ch4) { foundTicketChannel = ch4; break; }
             }
           }
 
-          if (foundTicketChannel && targetGuild) {
+          if (foundTicketChannel) {
+            // Save ticket_channel_id to Supabase
+            if (booking_id) {
+              supabaseService.supabaseRequest(`bookings?id=eq.${booking_id}`, 'PATCH', {
+                ticket_channel_id: foundTicketChannel.id
+              }).catch(() => {});
+            }
+
             return sendJSON(200, {
               success: true,
               channelId: foundTicketChannel.id,
               channelName: foundTicketChannel.name,
-              guildId: targetGuild.id,
-              url: `https://discord.com/channels/${targetGuild.id}/${foundTicketChannel.id}`
+              guildId: targetGuildId,
+              url: `https://discord.com/channels/${targetGuildId}/${foundTicketChannel.id}`
             });
           }
 
-          const fallbackGuildId = config.GUILD_ID || client.guilds.cache.first()?.id || '1537171063715401870';
           return sendJSON(200, {
             success: false,
-            fallbackUrl: `https://discord.com/channels/${fallbackGuildId}`,
+            fallbackUrl: `https://discord.com/channels/${targetGuildId}`,
             message: 'Salon introuvable sur Discord'
           });
         } catch (err) {

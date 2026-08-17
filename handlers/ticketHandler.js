@@ -136,6 +136,13 @@ async function createBookingTicket(client, bookingData) {
     permissionOverwrites: permissionOverwrites
   });
 
+  // Persist ticket_channel_id into Supabase booking record
+  if (actualBookingId && actualBookingId !== 'new') {
+    supabaseService.supabaseRequest(`bookings?id=eq.${actualBookingId}`, 'PATCH', {
+      ticket_channel_id: channel.id
+    }).catch(err => console.warn('⚠️ Erreur mise à jour ticket_channel_id :', err.message));
+  }
+
   // Resolve photo URL (vehicle or suite)
   let resolvedPhoto = photo_url || photoUrl || (item_name ? resolveVehiclePhotoUrl(item_name) : null);
   if (resolvedPhoto && !String(resolvedPhoto).startsWith('http') && !String(resolvedPhoto).startsWith('/')) {

@@ -445,27 +445,20 @@ async function fetchAllForumThreads(channel) {
   return [...active.threads.values(), ...archived.threads.values()];
 }
 
-// Retrouve le thread showroom d'un item : 1) par ID Supabase dans le footer du
-// message starter, 2) en secours par nom de modèle
-async function findThreadByTarget(channel, targetIdTag, itemCleanName) {
+// Retrouve le thread showroom d'un item par son ID Supabase unique dans le footer du message starter
+async function findThreadByTarget(channel, targetIdTag) {
+  if (!targetIdTag) return null;
   const allThreads = await fetchAllForumThreads(channel);
 
   for (const th of allThreads) {
     try {
       const starter = await th.fetchStarterMessage().catch(() => null);
-      if (starter && starter.embeds && starter.embeds[0] && starter.embeds[0].footer && starter.embeds[0].footer.text.includes(targetIdTag)) {
+      if (starter && starter.embeds && starter.embeds[0] && starter.embeds[0].footer && starter.embeds[0].footer.text && starter.embeds[0].footer.text.includes(targetIdTag)) {
         return th;
       }
     } catch (e) {}
   }
 
-  if (itemCleanName) {
-    for (const th of allThreads) {
-      if (th.name.toUpperCase().includes(itemCleanName) || itemCleanName.includes(th.name.toUpperCase().replace(/[^A-Z0-9]/g, ''))) {
-        return th;
-      }
-    }
-  }
   return null;
 }
 
@@ -1520,7 +1513,7 @@ function startApiServer(client, customPort = null) {
             const availableTags = channel.availableTags || [];
             const tagIds = getForumTagIds(availableTags, isAvailable, undefined, item.specs, item.name);
 
-            const targetThread = await findThreadByTarget(channel, targetIdTag, item.name.toUpperCase().trim());
+            const targetThread = await findThreadByTarget(channel, targetIdTag);
 
             if (targetThread) {
               if (targetThread.archived) await targetThread.setArchived(false).catch(() => {});
@@ -1660,7 +1653,7 @@ function startApiServer(client, customPort = null) {
             const availableTags = channel.availableTags || [];
             const tagIds = getSuiteForumTagIds(availableTags, isAvailable, item.name, item.specs);
 
-            const targetThread = await findThreadByTarget(channel, targetIdTag, item.name.toUpperCase().trim());
+            const targetThread = await findThreadByTarget(channel, targetIdTag);
 
             if (targetThread) {
               if (targetThread.archived) await targetThread.setArchived(false).catch(() => {});

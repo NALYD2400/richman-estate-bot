@@ -208,11 +208,11 @@ async function authenticateRequest(req) {
   return { isAuthenticated: false, isStaff: false, error: 'Unauthorized: Jeton ou clé API invalide' };
 }
 
-// Origins navigateur autorisées (dev local, domaine prod, previews Vercel)
+// Origins navigateur autorisées (dev local, domaine prod, previews Vercel richman-estate)
 const ALLOWED_ORIGIN_PATTERNS = [
   /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i,
   /^https:\/\/([a-z0-9-]+\.)*richman-estate\.com$/i,
-  /^https:\/\/[a-z0-9-]+\.vercel\.app$/i
+  /^https:\/\/richman-estate(-[a-z0-9-]+)?\.vercel\.app$/i
 ];
 
 // ============================================================================
@@ -1292,27 +1292,25 @@ function startApiServer(client, customPort = null) {
           const callerEmail = (auth.user && auth.user.email) || (auth.profile && auth.profile.email) || null;
           const callerUserId = (auth.user && auth.user.id) || null;
 
-          if (booking) {
-            const clientNameClean = String(booking.client_name || '').toLowerCase().trim();
-            const fullNameClean = callerFullName ? String(callerFullName).toLowerCase().trim() : '';
-            const emailClean = callerEmail ? String(callerEmail).toLowerCase().trim() : '';
+          if (!booking) {
+            return sendError(403, 'Forbidden: Dossier introuvable ou vous n\'avez pas accès à cette réservation');
+          }
 
-            // SÉCURITÉ : suppression du matching par nom complet (homonymes + full_name
-            // forgeable via user_metadata). Appartenance = user_id OU discord_id du
-            // profil en base, aligné sur la RLS SQL.
-            const discordMatches = Boolean(
-              callerDiscordId && booking.discord_id && String(booking.discord_id).trim() === String(callerDiscordId).trim()
-            );
+          // SÉCURITÉ : suppression du matching par nom complet (homonymes + full_name
+          // forgeable via user_metadata). Appartenance = user_id OU discord_id du
+          // profil en base, aligné sur la RLS SQL.
+          const discordMatches = Boolean(
+            callerDiscordId && booking.discord_id && String(booking.discord_id).trim() === String(callerDiscordId).trim()
+          );
 
-            const userMatches = Boolean(
-              callerUserId && booking.user_id && String(booking.user_id).trim() === String(callerUserId).trim()
-            );
+          const userMatches = Boolean(
+            callerUserId && booking.user_id && String(booking.user_id).trim() === String(callerUserId).trim()
+          );
 
-            const ownsBooking = auth.isStaff || discordMatches || userMatches;
+          const ownsBooking = auth.isStaff || discordMatches || userMatches;
 
-            if (!ownsBooking) {
-              return sendError(403, 'Forbidden: Vous ne pouvez écrire que dans vos propres dossiers de réservation');
-            }
+          if (!ownsBooking) {
+            return sendError(403, 'Forbidden: Vous ne pouvez écrire que dans vos propres dossiers de réservation');
           }
         }
 

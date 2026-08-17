@@ -108,14 +108,6 @@ function isStaffMember(member) {
 
   if (member.roles && member.roles.cache) {
     if (member.roles.cache.some(r => staffRoleIds.includes(r.id))) return true;
-
-    const staffKeywords = ['staff', 'admin', 'owner', 'fondateur', 'gérant', 'gerant', 'concierge', 'modérateur', 'moderateur', 'direction', 'responsable', 'patron', 'majordome'];
-    if (member.roles.cache.some(r => {
-      const name = (r.name || '').toLowerCase();
-      return staffKeywords.some(kw => name.includes(kw));
-    })) {
-      return true;
-    }
   }
 
   return false;

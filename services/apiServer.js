@@ -95,10 +95,17 @@ function cacheAuthResult(token, result) {
 function resolveTokenDiscordId(auth) {
   if (!auth || !auth.user) return null;
   const meta = auth.user.user_metadata || {};
-  const identity = (auth.user.identities && auth.user.identities[0]) ? auth.user.identities[0] : null;
+  let identityId = null;
+  if (Array.isArray(auth.user.identities)) {
+    const discIdentity = auth.user.identities.find(i => i.provider === 'discord');
+    if (discIdentity) {
+      identityId = discIdentity.id || (discIdentity.identity_data && discIdentity.identity_data.provider_id) || null;
+    }
+  }
   return (auth.profile && auth.profile.discord_id) ||
          meta.provider_id ||
-         (identity && identity.provider === 'discord' ? identity.id : null) ||
+         meta.sub ||
+         identityId ||
          null;
 }
 
@@ -137,11 +144,11 @@ async function authenticateRequest(req) {
       if (userRes.ok) {
         const user = await userRes.json();
         if (user && user.id) {
-          const profRes = await fetch(`${config.SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}&select=id,role,discord_id`, {
+          const profRes = await fetch(`${config.SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}&select=id,role,discord_id,full_name,email`, {
             method: 'GET',
             headers: {
               'apikey': config.SUPABASE_KEY,
-              'Authorization': `Bearer ${config.SUPABASE_SERVICE_KEY || token}`
+              'Authorization': `Bearer ${config.SUPABASE_SERVICE_KEY || config.SUPABASE_KEY || token}`
             }
           });
 
@@ -1216,23 +1223,46 @@ function startApiServer(client, customPort = null) {
 
           let booking = null;
           try {
-            const resp = await supabaseService.getBookingById(booking_id);
+            const authHeader = req.headers['authorization'] ? { 'Authorization': req.headers['authorization'] } : {};
+            const resp = await supabaseService.getBookingById(booking_id, authHeader);
             if (resp && Array.isArray(resp.data) && resp.data.length > 0) {
               booking = resp.data[0];
             }
           } catch (e) {}
 
-          if (!booking) {
-            return sendError(404, 'Dossier de réservation introuvable');
-          }
-
           const callerDiscordId = resolveTokenDiscordId(auth);
-          const callerFullName = (auth.profile && auth.profile.full_name) || null;
-          const ownsBooking = (callerDiscordId && booking.discord_id && String(booking.discord_id) === String(callerDiscordId)) ||
-                              (callerFullName && booking.client_name && String(booking.client_name) === String(callerFullName));
+          const callerFullName = (auth.profile && auth.profile.full_name) ||
+                                 (auth.user && auth.user.user_metadata && (auth.user.user_metadata.full_name || auth.user.user_metadata.name || auth.user.user_metadata.custom_claims?.global_name)) ||
+                                 null;
+          const callerEmail = (auth.user && auth.user.email) || (auth.profile && auth.profile.email) || null;
+          const callerUserId = (auth.user && auth.user.id) || null;
 
-          if (!ownsBooking) {
-            return sendError(403, 'Forbidden: Vous ne pouvez écrire que dans vos propres dossiers de réservation');
+          if (booking) {
+            const clientNameClean = String(booking.client_name || '').toLowerCase().trim();
+            const fullNameClean = callerFullName ? String(callerFullName).toLowerCase().trim() : '';
+            const emailClean = callerEmail ? String(callerEmail).toLowerCase().trim() : '';
+
+            const nameMatches = Boolean(
+              fullNameClean && (
+                clientNameClean === fullNameClean ||
+                clientNameClean.includes(fullNameClean) ||
+                fullNameClean.includes(clientNameClean)
+              )
+            ) || Boolean(emailClean && clientNameClean === emailClean);
+
+            const discordMatches = Boolean(
+              callerDiscordId && booking.discord_id && String(booking.discord_id).trim() === String(callerDiscordId).trim()
+            );
+
+            const userMatches = Boolean(
+              callerUserId && booking.user_id && String(booking.user_id).trim() === String(callerUserId).trim()
+            );
+
+            const ownsBooking = auth.isStaff || discordMatches || nameMatches || userMatches;
+
+            if (!ownsBooking) {
+              return sendError(403, 'Forbidden: Vous ne pouvez écrire que dans vos propres dossiers de réservation');
+            }
           }
         }
 
@@ -1240,24 +1270,38 @@ function startApiServer(client, customPort = null) {
           const role = isStaffRole ? 'staff' : 'client';
           const name = String(sender_name || (role === 'staff' ? 'Staff Richman' : 'Client Web')).slice(0, 50);
 
-          // skip_db_insert n'est honoré que pour un appel staff/secret (le web client insère déjà en base)
-          const canSkipDb = isStaffRole || auth.authType === 'secret';
-          if (!canSkipDb || (!parsedBody.skip_db_insert && !parsedBody.skipDbInsert)) {
-            await supabaseService.addBookingMessage(booking_id, name, discord_id || null, role, finalContent);
+          // Si le client web ou l'admin a déjà inséré le message dans Supabase, skip_db_insert évite le doublon
+          const shouldSkipDb = Boolean(parsedBody.skip_db_insert || parsedBody.skipDbInsert);
+          if (!shouldSkipDb) {
+            try {
+              await supabaseService.addBookingMessage(booking_id, name, discord_id || null, role, finalContent);
+            } catch (dbErr) {
+              console.warn("⚠️ Erreur insertion DB addBookingMessage (continuation envoi Discord):", dbErr.message);
+            }
           }
 
           let foundTicketChannel = null;
+          const shortRef = String(booking_id).slice(0, 6).toLowerCase();
+
           for (const guild of client.guilds.cache.values()) {
-            const ch = guild.channels.cache.find(c => c.isTextBased() && c.topic && c.topic.includes(`booking_id:${booking_id}`));
+            let ch = guild.channels.cache.find(c => c.isTextBased() && c.topic && c.topic.includes(`booking_id:${booking_id}`));
+            if (!ch) {
+              ch = guild.channels.cache.find(c => c.isTextBased() && (
+                (c.name && c.name.includes(shortRef)) ||
+                (c.topic && c.topic.includes(String(booking_id)))
+              ));
+            }
             if (ch) { foundTicketChannel = ch; break; }
           }
 
           if (foundTicketChannel) {
             const prefix = role === 'staff' ? '🖥️ **Staff (Admin Web)**' : '💻 **Client (Web)**';
-            await foundTicketChannel.send(`${prefix} : ${finalContent.slice(0, 1800)}`).catch(() => {});
+            await foundTicketChannel.send(`${prefix} : ${finalContent.slice(0, 1800)}`).catch((err) => {
+              console.warn("⚠️ Impossible d'envoyer le message dans le salon ticket Discord :", err.message);
+            });
           }
 
-          return sendJSON(200, { success: true });
+          return sendJSON(200, { success: true, channelFound: !!foundTicketChannel });
         } catch (err) {
           return sendError(500, 'Erreur synchronisation message', err.message);
         }

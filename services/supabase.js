@@ -18,7 +18,7 @@ function supabaseRequest(endpointPath, method = 'GET', data = null, customHeader
 
       const headers = {
         'apikey': config.SUPABASE_KEY,
-        'Authorization': `Bearer ${config.SUPABASE_KEY}`,
+        'Authorization': customHeaders.Authorization || customHeaders.authorization || `Bearer ${config.SUPABASE_SERVICE_KEY || config.SUPABASE_KEY}`,
         'Content-Type': 'application/json',
         'Prefer': 'return=representation',
         ...customHeaders
@@ -87,14 +87,14 @@ module.exports = {
   formatLuxuryCarName,
   
   // Bookings
-  getBookingById: async (id) => {
+  getBookingById: async (id, customHeaders = {}) => {
     const cleanId = String(id || '').trim();
-    const rpcRes = await supabaseRequest('rpc/get_booking_details', 'POST', { p_booking_id: cleanId });
+    const rpcRes = await supabaseRequest('rpc/get_booking_details', 'POST', { p_booking_id: cleanId }, customHeaders);
     if (rpcRes && Array.isArray(rpcRes.data) && rpcRes.data.length > 0) {
       return rpcRes;
     }
     const urlId = encodeURIComponent(cleanId);
-    return supabaseRequest(`bookings?id=eq.${urlId}&select=*`);
+    return supabaseRequest(`bookings?id=eq.${urlId}&select=*`, 'GET', null, customHeaders);
   },
   
   updateBookingStatus: async (id, status) => {

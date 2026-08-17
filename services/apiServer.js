@@ -1403,16 +1403,42 @@ function startApiServer(client, customPort = null) {
       if (pathname === '/api/get-ticket-channel') {
         try {
           const booking_id = query.booking_id || (parsedBody && (parsedBody.booking_id || parsedBody.id));
-          if (!booking_id) return sendError(400, 'booking_id requis');
+          const discord_id = query.discord_id || (parsedBody && parsedBody.discord_id);
+          const client_name = query.client_name || (parsedBody && parsedBody.client_name);
 
           let foundTicketChannel = null;
           let targetGuild = null;
+
           for (const guild of client.guilds.cache.values()) {
-            const ch = guild.channels.cache.find(c => c.isTextBased() && c.topic && c.topic.includes(`booking_id:${booking_id}`));
-            if (ch) {
-              foundTicketChannel = ch;
-              targetGuild = guild;
-              break;
+            // 1. Match exact booking_id in topic
+            if (booking_id) {
+              const ch1 = guild.channels.cache.find(c => c.isTextBased() && c.topic && (
+                c.topic.includes(`booking_id:${booking_id}`) ||
+                c.topic.includes(String(booking_id)) ||
+                (String(booking_id).length >= 6 && c.topic.includes(String(booking_id).slice(0, 6)))
+              ));
+              if (ch1) { foundTicketChannel = ch1; targetGuild = guild; break; }
+            }
+
+            // 2. Match discord_id in topic
+            if (discord_id) {
+              const ch2 = guild.channels.cache.find(c => c.isTextBased() && c.topic && (
+                c.topic.includes(`discord_id:${discord_id}`) ||
+                c.topic.includes(String(discord_id))
+              ));
+              if (ch2) { foundTicketChannel = ch2; targetGuild = guild; break; }
+            }
+
+            // 3. Match client name in channel name or topic
+            if (client_name) {
+              const cleanCName = String(client_name).toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (cleanCName.length >= 3) {
+                const ch3 = guild.channels.cache.find(c => c.isTextBased() && (
+                  (c.name && c.name.toLowerCase().includes(cleanCName)) ||
+                  (c.topic && c.topic.toLowerCase().includes(cleanCName))
+                ));
+                if (ch3) { foundTicketChannel = ch3; targetGuild = guild; break; }
+              }
             }
           }
 

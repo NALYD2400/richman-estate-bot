@@ -2,6 +2,8 @@
  * Richman Discord Bot — Vehicle Formatting & Resolution Helpers
  */
 
+const config = require('../config/constants');
+
 function formatLuxuryCarName(rawName) {
   if (!rawName) return 'Véhicule';
   const clean = String(rawName).trim();
@@ -86,10 +88,14 @@ function resolveSuitePhotoUrl(suiteName, customMediaUrls = null) {
     } catch (e) {}
   }
   const sUpper = String(suiteName || '').toUpperCase();
+  const baseUrl = (typeof config !== 'undefined' && config.SITE_URL) ? config.SITE_URL : 'https://richman-estate.vercel.app';
   if (sUpper.includes('VILLA')) {
-    return 'https://ghbeopdnfdxuqfjzmmeb.supabase.co/storage/v1/object/public/public_assets/media/villarichman.webp';
+    return `${baseUrl}/assets/hotel/02_piscine_jour.jpg`;
   }
-  return 'https://ghbeopdnfdxuqfjzmmeb.supabase.co/storage/v1/object/public/public_assets/media/penthouse.webp';
+  if (sUpper.includes('PENTHOUSE')) {
+    return `${baseUrl}/assets/hotel/03_panoramique_jour.jpg`;
+  }
+  return `${baseUrl}/assets/hotel/01_facade_jour.jpg`;
 }
 
 module.exports = {

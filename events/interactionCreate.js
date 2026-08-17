@@ -264,6 +264,15 @@ module.exports = {
               if (sList && sList.length > 0) sTargetId = sList[0].id;
               if (sTargetId) {
                 await supabaseService.syncItemStatus('suite', sTargetId, 'rented').catch(() => {});
+
+                try {
+                  const LOCAL_PORT = config.PORT || 3001;
+                  await fetch(`http://127.0.0.1:${LOCAL_PORT}/api/update-hotel-suite-status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.API_SECRET}` },
+                    body: JSON.stringify({ suiteId: sTargetId, status: 'rented' })
+                  }).catch(() => {});
+                } catch (e) {}
               }
             }
             updateBotPresence(client).catch(() => {});
@@ -385,6 +394,15 @@ module.exports = {
               if (sList && sList.length > 0) sTargetId = sList[0].id;
               if (sTargetId) {
                 await supabaseService.syncItemStatus('suite', sTargetId, 'confirmed').catch(() => {});
+
+                try {
+                  const LOCAL_PORT = config.PORT || 3001;
+                  await fetch(`http://127.0.0.1:${LOCAL_PORT}/api/update-hotel-suite-status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.API_SECRET}` },
+                    body: JSON.stringify({ suiteId: sTargetId, status: 'confirmed' })
+                  }).catch(() => {});
+                } catch (e) {}
               }
             }
             updateBotPresence(client).catch(() => {});

@@ -1228,6 +1228,15 @@ function startApiServer(client, customPort = null) {
               if (sList && sList.length > 0) {
                 const targetSId = sList[0].id;
                 await supabaseService.syncItemStatus('suite', targetSId, newStatus).catch(() => {});
+
+                try {
+                  const LOCAL_PORT = config.PORT || 3001;
+                  await fetch(`http://127.0.0.1:${LOCAL_PORT}/api/update-hotel-suite-status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.API_SECRET}` },
+                    body: JSON.stringify({ suiteId: targetSId, status: newStatus })
+                  }).catch(() => {});
+                } catch (e) {}
               }
             }
           }

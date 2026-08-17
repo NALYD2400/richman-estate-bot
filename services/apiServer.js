@@ -1200,7 +1200,7 @@ function startApiServer(client, customPort = null) {
       }
 
       // 8. Sync Booking Message from Web to Discord Ticket
-      if (pathname === '/api/sync-booking-message' && req.method === 'POST') {
+      if ((pathname === '/api/sync-booking-message' || pathname === '/api/send-booking-message' || pathname === '/api/booking-message') && req.method === 'POST') {
         const { booking_id, sender_name, message, content, discord_id, sender_role } = parsedBody;
         const finalContent = String(message || content || '').trim();
 

@@ -75,8 +75,10 @@ function resolveSuitePhotoUrl(suiteName, customMediaUrls = null) {
     try {
       if (typeof customMediaUrls === 'string' && customMediaUrls.startsWith('[')) {
         const arr = JSON.parse(customMediaUrls);
-        if (arr && arr[0] && String(arr[0]).startsWith('http')) return arr[0];
-      } else if (typeof customMediaUrls === 'string' && customMediaUrls.startsWith('http')) {
+        if (arr && arr[0] && (String(arr[0]).startsWith('http') || String(arr[0]).startsWith('data:image/'))) {
+          return arr[0];
+        }
+      } else if (typeof customMediaUrls === 'string' && (customMediaUrls.startsWith('http') || customMediaUrls.startsWith('data:image/'))) {
         return customMediaUrls;
       } else if (Array.isArray(customMediaUrls) && customMediaUrls[0]) {
         return customMediaUrls[0];

@@ -18,7 +18,8 @@ const {
   ButtonBuilder, 
   ButtonStyle, 
   EmbedBuilder,
-  ForumLayoutType
+  ForumLayoutType,
+  AttachmentBuilder
 } = require('discord.js');
 const config = require('../config/constants');
 const ticketHandler = require('../handlers/ticketHandler');
@@ -402,9 +403,30 @@ function buildSuiteShowroom(item, isAvailable, { photoUrl, specsText } = {}) {
       { name: '📍 Domaine', value: '`Richman Hills • Domaine Privé`', inline: true },
       { name: '✨ Caractéristiques', value: specs || 'Hébergement haut de gamme, service hôtelier d\'exception.', inline: false }
     )
-    .setFooter({ text: `ID: #${item.id.slice(0, 8).toUpperCase()} • Richman Estate Hotel & Suites` })
-    .setImage(resolvedPhoto)
+    .setFooter({ text: `ID: #${(item.id || '').slice(0, 8).toUpperCase()} • Richman Estate Hotel & Suites` })
     .setTimestamp();
+
+  const files = [];
+  if (resolvedPhoto) {
+    if (resolvedPhoto.startsWith('data:image/')) {
+      try {
+        const match = resolvedPhoto.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+        if (match) {
+          const ext = match[1] === 'jpeg' ? 'jpg' : match[1];
+          const buffer = Buffer.from(match[2], 'base64');
+          const safeId = (item.id || 'suite').slice(0, 6);
+          const filename = `suite_${safeId}.${ext}`;
+          const attachment = new AttachmentBuilder(buffer, { name: filename });
+          embed.setImage(`attachment://${filename}`);
+          files.push(attachment);
+        }
+      } catch (e) {
+        console.warn('[Suite Attachment Build Error]:', e.message);
+      }
+    } else if (resolvedPhoto.startsWith('http')) {
+      embed.setImage(resolvedPhoto);
+    }
+  }
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
@@ -413,7 +435,7 @@ function buildSuiteShowroom(item, isAvailable, { photoUrl, specsText } = {}) {
       .setURL(`${config.SITE_URL}/suites.html?select=${encodeURIComponent(suiteTitle.toLowerCase().trim())}`)
   );
 
-  return { embed, row, suiteTitle };
+  return { embed, row, files, suiteTitle };
 }
 
 // Union des threads actifs + archivés d'un forum
@@ -1580,14 +1602,14 @@ function startApiServer(client, customPort = null) {
             // Create thread per suite
             for (const item of suites) {
               const isAvailable = (item.status === 'confirmed' || item.status === 'available');
-              const { embed: sEmbed, row: sRow, suiteTitle } = buildSuiteShowroom(item, isAvailable);
+              const { embed: sEmbed, row: sRow, files: sFiles, suiteTitle } = buildSuiteShowroom(item, isAvailable);
               const threadTitle = `🏨 ${suiteTitle.toUpperCase()}`.slice(0, 100);
               const appliedTags = getSuiteForumTagIds(availableTags, isAvailable, item.name, item.specs);
 
               try {
                 await channel.threads.create({
                   name: threadTitle,
-                  message: { embeds: [sEmbed], components: [sRow] },
+                  message: { embeds: [sEmbed], files: sFiles || [], components: [sRow] },
                   appliedTags: appliedTags
                 });
               } catch (createErr) {
@@ -1631,7 +1653,7 @@ function startApiServer(client, customPort = null) {
             await supabaseService.syncItemStatus('suite', suiteId, targetDbStatus).catch(() => {});
           }
 
-          const { embed: sEmbed, row: sRow, suiteTitle } = buildSuiteShowroom(item, isAvailable);
+          const { embed: sEmbed, row: sRow, files: sFiles, suiteTitle } = buildSuiteShowroom(item, isAvailable);
 
           const isForum = channel.type === ChannelType.GuildForum;
           if (isForum) {
@@ -1645,13 +1667,13 @@ function startApiServer(client, customPort = null) {
               if (tagIds.length > 0) await targetThread.setAppliedTags(tagIds).catch(() => {});
               const starter = await targetThread.fetchStarterMessage().catch(() => null);
               if (starter) {
-                await starter.edit({ embeds: [sEmbed], components: [sRow] }).catch(() => {});
+                await starter.edit({ embeds: [sEmbed], files: sFiles || [], components: [sRow] }).catch(() => {});
               }
             } else {
               const threadTitle = `🏨 ${suiteTitle.toUpperCase()}`.slice(0, 100);
               await channel.threads.create({
                 name: threadTitle,
-                message: { embeds: [sEmbed], components: [sRow] },
+                message: { embeds: [sEmbed], files: sFiles || [], components: [sRow] },
                 appliedTags: tagIds
               }).catch(() => {});
             }

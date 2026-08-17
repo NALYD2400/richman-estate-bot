@@ -1399,6 +1399,44 @@ function startApiServer(client, customPort = null) {
         }
       }
 
+      // 8b. Get Direct Discord Channel URL for Ticket
+      if (pathname === '/api/get-ticket-channel') {
+        try {
+          const booking_id = query.booking_id || (parsedBody && (parsedBody.booking_id || parsedBody.id));
+          if (!booking_id) return sendError(400, 'booking_id requis');
+
+          let foundTicketChannel = null;
+          let targetGuild = null;
+          for (const guild of client.guilds.cache.values()) {
+            const ch = guild.channels.cache.find(c => c.isTextBased() && c.topic && c.topic.includes(`booking_id:${booking_id}`));
+            if (ch) {
+              foundTicketChannel = ch;
+              targetGuild = guild;
+              break;
+            }
+          }
+
+          if (foundTicketChannel && targetGuild) {
+            return sendJSON(200, {
+              success: true,
+              channelId: foundTicketChannel.id,
+              channelName: foundTicketChannel.name,
+              guildId: targetGuild.id,
+              url: `https://discord.com/channels/${targetGuild.id}/${foundTicketChannel.id}`
+            });
+          }
+
+          const fallbackGuildId = config.GUILD_ID || client.guilds.cache.first()?.id || '1537171063715401870';
+          return sendJSON(200, {
+            success: false,
+            fallbackUrl: `https://discord.com/channels/${fallbackGuildId}`,
+            message: 'Salon introuvable sur Discord'
+          });
+        } catch (err) {
+          return sendError(500, 'Erreur recherche salon Discord', err.message);
+        }
+      }
+
       // 9. Close Ticket / Delete Booking Ticket
       if ((pathname === '/api/close-ticket' || pathname === '/api/delete-booking-ticket') && req.method === 'POST') {
         try {

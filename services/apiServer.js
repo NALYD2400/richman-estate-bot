@@ -61,7 +61,8 @@ const SENSITIVE_ADMIN_ENDPOINTS = [
   '/api/close-ticket',
   '/api/delete-booking-ticket',
   '/api/send-user-dm',
-  '/api/sync-booking-status-action'
+  '/api/sync-booking-status-action',
+  '/api/send-booking-notification'
 ];
 
 // Endpoints créant des ressources Discord (salons/tickets/DM) : quota strict anti-spam
@@ -91,22 +92,38 @@ function cacheAuthResult(token, result) {
   authCache.set(token, result);
 }
 
-// Résout l'identifiant Discord légitime d'un utilisateur Supabase authentifié (OAuth Discord)
+// Résout l'identifiant Discord légitime d'un utilisateur Supabase authentifié (OAuth Discord).
+// SÉCURITÉ : ne fait confiance aux métadonnées (user_metadata.provider_id / sub) QUE si
+// l'utilisateur a réellement été créé par OAuth Discord (app_metadata / identities contrôlés
+// par GoTrue). Un compte email peut forger n'importe quelle user_metadata — on ignore donc
+// totalement ses métadonnées ici.
 function resolveTokenDiscordId(auth) {
   if (!auth || !auth.user) return null;
-  const meta = auth.user.user_metadata || {};
+  const user = auth.user;
+  const meta = user.user_metadata || {};
   let identityId = null;
-  if (Array.isArray(auth.user.identities)) {
-    const discIdentity = auth.user.identities.find(i => i.provider === 'discord');
+  if (Array.isArray(user.identities)) {
+    const discIdentity = user.identities.find(i => i.provider === 'discord');
     if (discIdentity) {
       identityId = discIdentity.id || (discIdentity.identity_data && discIdentity.identity_data.provider_id) || null;
     }
   }
-  return (auth.profile && auth.profile.discord_id) ||
-         meta.provider_id ||
-         meta.sub ||
-         identityId ||
-         null;
+  const isDiscordOAuth = Boolean(identityId) ||
+    (user.app_metadata && user.app_metadata.provider === 'discord') ||
+    (Array.isArray(user.app_metadata && user.app_metadata.providers) && user.app_metadata.providers.includes('discord'));
+
+  // Le discord_id du profil en base est la source de vérité (écrit par les triggers,
+  // uniquement pour les comptes OAuth Discord vérifiés).
+  if (auth.profile && auth.profile.discord_id) {
+    return auth.profile.discord_id;
+  }
+  if (!isDiscordOAuth) {
+    return null;
+  }
+  // L'identité Discord (auth.identities, contrôlée par GoTrue) prime sur
+  // user_metadata, forgeable même pour un compte Discord via
+  // supabase.auth.updateUser({ data: { provider_id: ... } }).
+  return identityId || meta.provider_id || meta.sub || null;
 }
 
 async function authenticateRequest(req) {
@@ -163,9 +180,10 @@ async function authenticateRequest(req) {
           const STAFF_ROLES = ['owner', 'admin', 'gerant_hotel', 'gerant_vehicules'];
           const MASTER_IDS = ['985083967642423366', '1015310406169923665'];
 
-          const isMaster = user.id === '985083967642423366' ||
-                           (profile && MASTER_IDS.includes(profile.discord_id)) ||
-                           (user.user_metadata && MASTER_IDS.includes(user.user_metadata.provider_id));
+          // SÉCURITÉ : le statut fondateur provient UNIQUEMENT du profil en base
+          // (discord_id écrit par les triggers pour un OAuth Discord vérifié).
+          // Ne JAMAIS faire confiance à user_metadata.provider_id (forgeable par un compte email).
+          const isMaster = Boolean(profile && MASTER_IDS.includes(profile.discord_id));
 
           const isStaff = isMaster || (profile && STAFF_ROLES.includes(profile.role));
 
@@ -465,7 +483,12 @@ function startApiServer(client, customPort = null) {
       return res.end();
     }
 
-    const clientIp = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '127.0.0.1').split(',')[0].trim();
+    // Anti-spoofing rate-limit : derrière un proxy (Render/Vercel), l'IP réelle est
+    // le DERNIER élément de X-Forwarded-For (ajouté par le proxy) ; les premiers sont
+    // contrôlés par le client (rotation = contournement des quotas). Sans proxy, on
+    // utilise l'adresse du socket.
+    const xff = String(req.headers['x-forwarded-for'] || '').split(',');
+    const clientIp = (xff.length && xff[xff.length - 1].trim()) || req.socket.remoteAddress || '127.0.0.1';
     if (isRateLimited(clientIp, 120, 60000)) {
       res.writeHead(429, { 'Content-Type': 'application/json; charset=utf-8' });
       return res.end(JSON.stringify({ error: 'Trop de requêtes, veuillez patienter (Rate limit dépassé).' }));
@@ -511,6 +534,7 @@ function startApiServer(client, customPort = null) {
       if (!auth.isStaff) {
         return sendError(401, 'Unauthorized: Privilèges staff ou clé API secrète requis');
       }
+      req.auth = auth;
     }
 
     // Role Verification Helper
@@ -629,12 +653,43 @@ function startApiServer(client, customPort = null) {
         }
       }
 
+      // 0. Gardes anti-abuse des endpoints de création de tickets / DM Discord
+      //    (anti-phishing) : un discord_id fourni doit être CELUI de l'appelant,
+      //    sauf staff/secret. Les invités sans discord_id restent acceptés
+      //    (ticket sans DM), toujours sous quota.
+      if ((pathname === '/api/create-booking-ticket' || pathname === '/api/create-vehicle-reservation-ticket' ||
+           pathname === '/api/send-contact-message' || pathname === '/api/create-contact-ticket') && req.method === 'POST') {
+        const bodyDiscordId = String(parsedBody.discordId || parsedBody.discord_id || '').trim();
+        if (bodyDiscordId && config.isValidSnowflake(bodyDiscordId)) {
+          const auth = await authenticateRequest(req);
+          if (!auth.isAuthenticated) {
+            return sendError(401, 'Unauthorized: Session membre ou clé API requise pour lier un compte Discord');
+          }
+          if (!auth.isStaff) {
+            const tokenDiscordId = resolveTokenDiscordId(auth);
+            if (!tokenDiscordId || String(tokenDiscordId).trim() !== bodyDiscordId) {
+              return sendError(403, 'Forbidden: Vous ne pouvez créer un ticket/DM que pour votre propre compte Discord');
+            }
+          }
+        }
+      }
+
       // 1. Check User Roles Endpoint (POST preferred, GET without providerToken allowed for read-only ID)
       if (pathname === '/api/check-user-roles') {
         // Authentification obligatoire : empêche l'énumération anonyme des rôles/pseudos/avatars
         const auth = await authenticateRequest(req);
         if (!auth.isAuthenticated) {
           return sendError(401, 'Unauthorized: Session membre ou clé API requise pour consulter les rôles');
+        }
+
+        // Anti-énumération : un membre ne peut interroger QUE son propre discord_id
+        // (staff/secret autorisés à consulter n'importe quel membre).
+        if (!auth.isStaff) {
+          const queriedId = req.method === 'POST' ? parsedBody.discordId : query.discordId;
+          const ownId = resolveTokenDiscordId(auth);
+          if (!ownId || String(queriedId || '').trim() !== String(ownId).trim()) {
+            return sendError(403, 'Forbidden: Vous ne pouvez consulter que vos propres rôles');
+          }
         }
 
         if (req.method === 'POST') {
@@ -1242,14 +1297,9 @@ function startApiServer(client, customPort = null) {
             const fullNameClean = callerFullName ? String(callerFullName).toLowerCase().trim() : '';
             const emailClean = callerEmail ? String(callerEmail).toLowerCase().trim() : '';
 
-            const nameMatches = Boolean(
-              fullNameClean && (
-                clientNameClean === fullNameClean ||
-                clientNameClean.includes(fullNameClean) ||
-                fullNameClean.includes(clientNameClean)
-              )
-            ) || Boolean(emailClean && clientNameClean === emailClean);
-
+            // SÉCURITÉ : suppression du matching par nom complet (homonymes + full_name
+            // forgeable via user_metadata). Appartenance = user_id OU discord_id du
+            // profil en base, aligné sur la RLS SQL.
             const discordMatches = Boolean(
               callerDiscordId && booking.discord_id && String(booking.discord_id).trim() === String(callerDiscordId).trim()
             );
@@ -1258,7 +1308,7 @@ function startApiServer(client, customPort = null) {
               callerUserId && booking.user_id && String(booking.user_id).trim() === String(callerUserId).trim()
             );
 
-            const ownsBooking = auth.isStaff || discordMatches || nameMatches || userMatches;
+            const ownsBooking = auth.isStaff || discordMatches || userMatches;
 
             if (!ownsBooking) {
               return sendError(403, 'Forbidden: Vous ne pouvez écrire que dans vos propres dossiers de réservation');
@@ -1681,6 +1731,32 @@ function startApiServer(client, customPort = null) {
 
           if (!targetRole) {
             return sendError(404, `Rôle introuvable sur le serveur Discord.`);
+          }
+
+          // --- ANTI-ESCALADE : hiérarchie stricte des rôles Discord ---
+          // Un staff ne gère que des rôles STRICTEMENT inférieurs au sien (niveau égal
+          // interdit sauf pour l'owner), et un rôle libre (roleId hors whitelist) est
+          // traité comme un rôle d'administration (réservé owner). La clé secrète
+          // (authType 'secret') contourne ces limites par conception.
+          const callerAuth = req.auth || await authenticateRequest(req);
+          const callerRole = (callerAuth.profile && callerAuth.profile.role) || null;
+          const isSecretAuth = callerAuth.authType === 'secret';
+          const ROLE_LEVEL = { owner: 4, admin: 3, gerant_hotel: 2, gerant_vehicules: 2, vip: 1, citoyen: 0, membre: 0 };
+          const callerLevel = isSecretAuth ? 5 : (ROLE_LEVEL[callerRole] !== undefined ? ROLE_LEVEL[callerRole] : 0);
+
+          let targetLevel = null;
+          if (roleKey && ROLE_LEVEL[roleKey] !== undefined) {
+            targetLevel = ROLE_LEVEL[roleKey];
+          } else {
+            let targetKey = null;
+            for (const [k, id] of Object.entries(ROLE_MAP)) {
+              if (id && targetRole.id === id) { targetKey = k; break; }
+            }
+            targetLevel = targetKey !== null ? (ROLE_LEVEL[targetKey] !== undefined ? ROLE_LEVEL[targetKey] : 1) : 3;
+          }
+
+          if (targetLevel > callerLevel || (targetLevel === callerLevel && callerLevel < 4)) {
+            return sendError(403, `Action refusée : vous ne pouvez pas gérer un rôle de niveau supérieur ou égal au vôtre (« ${targetRole.name} »).`);
           }
 
           if (guild.members.me && guild.members.me.roles.highest.position <= targetRole.position) {

@@ -45,6 +45,12 @@ const config = {
   MAX_PAYLOAD_SIZE: 1024 * 1024 // 1 MB
 };
 
+// Sécurité : si la clé service est absente, le bot retombe silencieusement sur la
+// clé anon (écritures RLS refusées, RPC du chat bloquées) — alerter immédiatement.
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_SERVICE_KEY) {
+  console.warn('⚠️ SUPABASE_SERVICE_ROLE_KEY absente : le bot utilisera la clé anon (écritures RLS et chat refusés). Configurez la clé service dans bot/.env.');
+}
+
 /**
  * Constant-time string comparison to prevent side-channel timing attacks on API secrets
  */

@@ -103,11 +103,18 @@ function isStaffMember(member) {
     config.ROLE_GERANT_VEHICULES_ID,
     config.ROLE_CONCIERGE_ID,
     '1537194551813603338',
-    '1537194801512980561'
+    '1537194801512980561',
+    '1537194801512980560'
   ].filter(Boolean);
 
   if (member.roles && member.roles.cache) {
-    if (member.roles.cache.some(r => staffRoleIds.includes(r.id))) return true;
+    if (member.roles.cache.some(r => 
+      staffRoleIds.includes(r.id) ||
+      r.name.toLowerCase().includes('gérant') ||
+      r.name.toLowerCase().includes('gerant') ||
+      r.name.toLowerCase().includes('admin') ||
+      r.name.toLowerCase().includes('fondateur')
+    )) return true;
   }
 
   return false;

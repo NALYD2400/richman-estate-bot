@@ -632,12 +632,15 @@ function startApiServer(client, customPort = null) {
         const REQUIRED_CONTACT_ROLES = [
           '1537437506235269262',
           '1537195723211153511',
+          '1537194801512980561',
+          '1537194801512980560',
           config.ROLE_CITOYEN_ID,
           config.ROLE_MEMBRE_ID,
           config.ROLE_OWNER_ID,
           config.ROLE_ADMIN_ID,
           config.ROLE_VIP_ID,
           config.ROLE_GERANT_HOTEL_ID,
+          config.ROLE_GERANT_VEHICULES_ID,
           config.ROLE_DIAMOND_VIP_ID,
           config.ROLE_PARTENAIRE_ID
         ].filter(Boolean);
@@ -1759,12 +1762,33 @@ function startApiServer(client, customPort = null) {
                 owner: ['fondateur', 'owner', 'direction'],
                 admin: ['admin', 'administrateur', 'staff'],
                 gerant_hotel: ['gérant hôtel', 'gerant hotel', 'hotel', 'hôtel'],
-                gerant_vehicules: ['gérant véhicules', 'gerant vehicule', 'voiture', 'flotte', 'concession'],
+                gerant_vehicules: ['gérant véhicules', 'gerant vehicules', 'gérant véhicule', 'gerant vehicule', 'gérant voiture', 'gerant voiture', 'gérant voitures', 'gerant voitures', 'voiture', 'flotte', 'concession'],
                 vip: ['vip'],
                 citoyen: ['citoyen', 'enregistré', 'membre']
               };
               const kws = kwMap[roleKey] || [roleKey];
               targetRole = guild.roles.cache.find(r => kws.some(k => r.name.toLowerCase().includes(k)));
+            }
+
+            // Auto-create role on Discord if not found when adding
+            if (!targetRole && action === 'add') {
+              try {
+                if (roleKey === 'gerant_vehicules') {
+                  targetRole = await guild.roles.create({
+                    name: '🚗 Gérant Véhicules',
+                    color: 0x3B82F6,
+                    reason: 'Création automatique rôle Gérant Véhicules par Richman Estate'
+                  });
+                } else if (roleKey === 'gerant_hotel') {
+                  targetRole = await guild.roles.create({
+                    name: '🏨 Gérant Hôtel',
+                    color: 0x8B5CF6,
+                    reason: 'Création automatique rôle Gérant Hôtel par Richman Estate'
+                  });
+                }
+              } catch (createErr) {
+                console.warn('[Auto-create role error]:', createErr.message);
+              }
             }
           }
 

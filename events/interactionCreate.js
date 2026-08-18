@@ -8,6 +8,7 @@ const {
   TextInputStyle, 
   ActionRowBuilder, 
   EmbedBuilder,
+  AttachmentBuilder,
   MessageFlags 
 } = require('discord.js');
 const config = require('../config/constants');
@@ -302,10 +303,19 @@ module.exports = {
                   .setFooter({ text: 'Richman Estate' })
                   .setTimestamp();
 
+                const dmFiles = [];
                 if (photoUrl && String(photoUrl).startsWith('http')) {
-                  acceptEmbed.setImage(photoUrl);
+                  try {
+                    const ext = photoUrl.split('?')[0].split('.').pop() || 'webp';
+                    const filename = `accept_${shortRef || Date.now()}.${ext}`;
+                    const attachment = new AttachmentBuilder(photoUrl, { name: filename });
+                    acceptEmbed.setImage(`attachment://${filename}`);
+                    dmFiles.push(attachment);
+                  } catch (e) {
+                    acceptEmbed.setImage(photoUrl);
+                  }
                 }
-                await targetUser.send({ embeds: [acceptEmbed] }).catch(() => {});
+                await targetUser.send({ embeds: [acceptEmbed], files: dmFiles }).catch(() => {});
               }
             } catch (dmErr) {
               console.warn("⚠️ Impossible d'envoyer le MP de confirmation:", dmErr.message);
@@ -429,10 +439,19 @@ module.exports = {
                   .setFooter({ text: 'Richman Estate' })
                   .setTimestamp();
 
+                const dmFiles = [];
                 if (photoUrl && String(photoUrl).startsWith('http')) {
-                  refuseDmEmbed.setImage(photoUrl);
+                  try {
+                    const ext = photoUrl.split('?')[0].split('.').pop() || 'webp';
+                    const filename = `refuse_${shortRef || Date.now()}.${ext}`;
+                    const attachment = new AttachmentBuilder(photoUrl, { name: filename });
+                    refuseDmEmbed.setImage(`attachment://${filename}`);
+                    dmFiles.push(attachment);
+                  } catch (e) {
+                    refuseDmEmbed.setImage(photoUrl);
+                  }
                 }
-                await targetUser.send({ embeds: [refuseDmEmbed] }).catch(() => {});
+                await targetUser.send({ embeds: [refuseDmEmbed], files: dmFiles }).catch(() => {});
               }
             } catch (dmErr) {}
           }

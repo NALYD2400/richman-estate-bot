@@ -1293,10 +1293,19 @@ function startApiServer(client, customPort = null) {
                   .setFooter({ text: 'Richman Estate' })
                   .setTimestamp();
 
+                const dmFiles = [];
                 if (photoUrl && String(photoUrl).startsWith('http')) {
-                  dmEmbed.setImage(photoUrl);
+                  try {
+                    const ext = photoUrl.split('?')[0].split('.').pop() || 'webp';
+                    const filename = `status_${shortRef || Date.now()}.${ext}`;
+                    const attachment = new AttachmentBuilder(photoUrl, { name: filename });
+                    dmEmbed.setImage(`attachment://${filename}`);
+                    dmFiles.push(attachment);
+                  } catch (e) {
+                    dmEmbed.setImage(photoUrl);
+                  }
                 }
-                await targetUser.send({ embeds: [dmEmbed] }).catch(() => {});
+                await targetUser.send({ embeds: [dmEmbed], files: dmFiles }).catch(() => {});
               }
             } catch (e) {}
           }

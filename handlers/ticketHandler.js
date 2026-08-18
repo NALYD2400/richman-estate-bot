@@ -8,7 +8,8 @@ const {
   ActionRowBuilder, 
   ButtonBuilder, 
   ButtonStyle, 
-  EmbedBuilder 
+  EmbedBuilder,
+  AttachmentBuilder 
 } = require('discord.js');
 const config = require('../config/constants');
 const supabaseService = require('../services/supabase');
@@ -186,19 +187,24 @@ async function createBookingTicket(client, bookingData) {
   if (phone) {
     embed.addFields({ name: '📞 Contact', value: `\`${String(phone).slice(0, 30)}\``, inline: true });
   }
-  if (notes) {
-    embed.addFields({ name: '📝 Notes', value: String(notes).slice(0, 500), inline: false });
-  }
-
+  const channelFiles = [];
   if (resolvedPhoto && String(resolvedPhoto).startsWith('http')) {
-    embed.setImage(resolvedPhoto);
+    try {
+      const ext = resolvedPhoto.split('?')[0].split('.').pop() || 'webp';
+      const filename = `preview_${shortRef || Date.now()}.${ext}`;
+      const attachment = new AttachmentBuilder(resolvedPhoto, { name: filename });
+      embed.setImage(`attachment://${filename}`);
+      channelFiles.push(attachment);
+    } catch (e) {
+      embed.setImage(resolvedPhoto);
+    }
   }
 
   const notificationContent = (cleanDiscordId && config.isValidSnowflake(cleanDiscordId))
     ? `🛎️ <@${cleanDiscordId}> Votre dossier **#${shortRef.toUpperCase()}** est pris en charge par l'équipe Richman !`
     : `🛎️ Nouveau dossier **#${shortRef.toUpperCase()}** pour **${String(client_name || 'Citoyen').slice(0, 50)}** !`;
 
-  await channel.send({ content: notificationContent, embeds: [embed], components: [actionRow] });
+  await channel.send({ content: notificationContent, embeds: [embed], components: [actionRow], files: channelFiles });
 
   // Send Direct Message (DM) to user on Discord
   if (targetDiscordUser) {
@@ -219,11 +225,20 @@ async function createBookingTicket(client, bookingData) {
         .setFooter({ text: 'Richman Estate' })
         .setTimestamp();
 
+      const dmFiles = [];
       if (resolvedPhoto && String(resolvedPhoto).startsWith('http')) {
-        dmEmbed.setImage(resolvedPhoto);
+        try {
+          const ext = resolvedPhoto.split('?')[0].split('.').pop() || 'webp';
+          const filename = `dm_${shortRef || Date.now()}.${ext}`;
+          const attachment = new AttachmentBuilder(resolvedPhoto, { name: filename });
+          dmEmbed.setImage(`attachment://${filename}`);
+          dmFiles.push(attachment);
+        } catch (e) {
+          dmEmbed.setImage(resolvedPhoto);
+        }
       }
 
-      await targetDiscordUser.send({ embeds: [dmEmbed] }).catch(() => {});
+      await targetDiscordUser.send({ embeds: [dmEmbed], files: dmFiles }).catch(() => {});
     } catch (dmErr) {
       console.warn("⚠️ Impossible d'envoyer le MP au client :", dmErr.message);
     }

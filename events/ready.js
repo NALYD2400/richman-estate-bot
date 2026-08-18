@@ -5,6 +5,7 @@ const { ActivityType } = require('discord.js');
 const slashCommands = require('../commands/slashCommands');
 const config = require('../config/constants');
 const supabase = require('../services/supabase');
+const { checkOverdueRentals } = require('../services/overdueChecker');
 
 async function updateBotPresence(client) {
   if (!client || !client.user) return;
@@ -53,6 +54,12 @@ module.exports = {
     setInterval(() => {
       updateBotPresence(client);
     }, 45000);
+
+    // Check overdue rentals on launch and every 3 minutes
+    setTimeout(() => checkOverdueRentals(client), 5000);
+    setInterval(() => {
+      checkOverdueRentals(client);
+    }, 3 * 60 * 1000);
 
     // Création / Vérification automatique du rôle "🌲 Citoyen"
     client.guilds.cache.forEach(async (guild) => {

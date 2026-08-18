@@ -99,7 +99,8 @@ module.exports = {
   
   updateBookingStatus: async (id, status) => {
     const cleanId = String(id || '').trim();
-    const cleanStatus = (status === 'confirmed' || status === 'cancelled') ? status : 'pending';
+    const validStatuses = ['pending', 'confirmed', 'cancelled', 'completed', 'closed'];
+    const cleanStatus = validStatuses.includes(status) ? status : 'pending';
     const rpcRes = await supabaseRequest('rpc/update_booking_status', 'POST', {
       p_booking_id: cleanId,
       p_status: cleanStatus

@@ -181,16 +181,71 @@ module.exports = {
         if (customId === 'btn_ticket_close' || customId.startsWith('close_ticket_')) {
           const topic = interaction.channel.topic || '';
           const bIdMatch = topic.match(/booking_id:([^|]+)/);
+          const vIdMatch = topic.match(/(?:item_id|vehicle_id):([^|]+)/);
+          const vNameMatch = topic.match(/(?:item_name|vehicle_name):([^|]+)/);
+          const isSuite = interaction.channel.name.startsWith('suite-') || topic.includes('type:suite');
           const bookingId = bIdMatch ? bIdMatch[1].trim() : null;
+          const itemId = vIdMatch ? vIdMatch[1].trim() : null;
+          const itemName = vNameMatch ? vNameMatch[1].trim() : null;
 
           if (bookingId) {
             await supabaseService.updateBookingStatus(bookingId, 'closed').catch(() => {});
+            await supabaseService.addBookingMessage(
+              bookingId,
+              interaction.member?.displayName || interaction.user.username || 'Staff Richman',
+              interaction.user.id,
+              'staff',
+              '🔒 Le salon ticket a été clôturé depuis Discord et le dossier est archivé.'
+            ).catch(() => {});
+          }
+
+          // Ensure vehicle / suite is available in showroom
+          if (itemId || itemName) {
+            if (!isSuite) {
+              let vTargetId = itemId;
+              const { data: vList } = await supabaseService.supabaseRequest(
+                (itemId && itemId.length > 10 && !itemId.includes('-')) 
+                  ? `vehicules?id=eq.${itemId}&limit=1`
+                  : `vehicules?name=ilike.${encodeURIComponent(itemName)}&limit=1`
+              );
+              if (vList && vList.length > 0) vTargetId = vList[0].id;
+              if (vTargetId) {
+                await supabaseService.syncItemStatus('fleet', vTargetId, 'confirmed').catch(() => {});
+                try {
+                  const LOCAL_PORT = config.PORT || 3001;
+                  await fetch(`http://127.0.0.1:${LOCAL_PORT}/api/update-fleet-vehicle-status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.API_SECRET}` },
+                    body: JSON.stringify({ vehicleId: vTargetId, status: 'confirmed' })
+                  }).catch(() => {});
+                } catch (e) {}
+              }
+            } else {
+              let sTargetId = itemId;
+              const { data: sList } = await supabaseService.supabaseRequest(
+                (itemId && itemId.length > 10 && !itemId.includes('-')) 
+                  ? `suites?id=eq.${itemId}&limit=1`
+                  : `suites?name=ilike.${encodeURIComponent(itemName)}&limit=1`
+              );
+              if (sList && sList.length > 0) sTargetId = sList[0].id;
+              if (sTargetId) {
+                await supabaseService.syncItemStatus('suite', sTargetId, 'confirmed').catch(() => {});
+                try {
+                  const LOCAL_PORT = config.PORT || 3001;
+                  await fetch(`http://127.0.0.1:${LOCAL_PORT}/api/update-hotel-suite-status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.API_SECRET}` },
+                    body: JSON.stringify({ suiteId: sTargetId, status: 'confirmed' })
+                  }).catch(() => {});
+                } catch (e) {}
+              }
+            }
           }
 
           const closeEmbed = new EmbedBuilder()
             .setColor(0xEF4444)
             .setTitle('🔒 FERMETURE DU TICKET')
-            .setDescription(`Ticket clôturé par **<@${interaction.user.id}>**.\n\n⚠️ **Suppression de ce salon dans 3 secondes...**`)
+            .setDescription(`Ticket clôturé par **<@${interaction.user.id}>**.\n\nLe dossier a été mis à jour et archivé sur le panel web.\n⚠️ **Suppression de ce salon dans 3 secondes...**`)
             .setFooter({ text: 'Richman Estate' })
             .setTimestamp();
 

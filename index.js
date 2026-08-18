@@ -20,6 +20,7 @@ const readyEvent = require('./events/ready');
 const interactionCreateEvent = require('./events/interactionCreate');
 const messageCreateEvent = require('./events/messageCreate');
 const guildMemberAddEvent = require('./events/guildMemberAdd');
+const channelDeleteEvent = require('./events/channelDelete');
 
 // Initialisation du client Discord avec les intents requis
 const client = new Client({
@@ -45,6 +46,7 @@ client.once(readyEvent.name, (...args) => readyEvent.execute(client, ...args));
 client.on(interactionCreateEvent.name, (...args) => interactionCreateEvent.execute(client, ...args));
 client.on(messageCreateEvent.name, (...args) => messageCreateEvent.execute(client, ...args));
 client.on(guildMemberAddEvent.name, (...args) => guildMemberAddEvent.execute(client, ...args));
+client.on(channelDeleteEvent.name, (...args) => channelDeleteEvent.execute(client, ...args));
 
 // Démarrage du serveur REST API (port 3001) pour la communication Web <-> Discord
 let apiServer = null;

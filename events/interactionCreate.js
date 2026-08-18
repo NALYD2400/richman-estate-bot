@@ -377,6 +377,11 @@ module.exports = {
             }
           }
 
+          // Move channel to Returns category if configured
+          if (config.CAT_TICKETS_RETOURS_ID && interaction.channel.setParent) {
+            interaction.channel.setParent(config.CAT_TICKETS_RETOURS_ID, { lockPermissions: false }).catch(() => {});
+          }
+
           const luxuryTitle = isSuite ? itemName : formatLuxuryCarName(itemName);
           const statusEmbed = new EmbedBuilder()
             .setColor(0x10B981)
@@ -393,7 +398,157 @@ module.exports = {
             .setFooter({ text: 'Richman Estate' })
             .setTimestamp();
 
-          return interaction.reply({ embeds: [statusEmbed] }).catch(() => {});
+          const returnActionRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`btn_ticket_return_${bookingId || 'new'}`)
+              .setLabel(isSuite ? '🔑 Valider le Check-out' : '🔄 Valider le Retour')
+              .setStyle(ButtonStyle.Success)
+              .setEmoji(isSuite ? '🔑' : '🔄'),
+            new ButtonBuilder()
+              .setCustomId('btn_ticket_close')
+              .setLabel('🔒 Clôturer & Archiver')
+              .setStyle(ButtonStyle.Secondary)
+              .setEmoji('🔒')
+          );
+
+          return interaction.reply({ embeds: [statusEmbed], components: [returnActionRow] }).catch(() => {});
+        }
+
+        // Action: Validate Return / Check-out
+        if (customId.startsWith('btn_ticket_return_') || customId.startsWith('return_booking_')) {
+          let bookingId = customId.replace('btn_ticket_return_', '').replace('return_booking_', '').trim();
+          const topic = interaction.channel.topic || '';
+          const vIdMatch = topic.match(/(?:item_id|vehicle_id):([^|]+)/);
+          const vNameMatch = topic.match(/(?:item_name|vehicle_name):([^|]+)/);
+          const dIdMatch = topic.match(/discord_id:([^|]+)/);
+          const cNameMatch = topic.match(/client_name:([^|]+)/);
+          const isSuite = interaction.channel.name.startsWith('suite-') || topic.includes('type:suite');
+
+          if (bookingId === 'new') {
+            const bIdMatch = topic.match(/booking_id:([^|]+)/);
+            if (bIdMatch) bookingId = bIdMatch[1].trim();
+          }
+
+          const itemId = vIdMatch ? vIdMatch[1] : null;
+          const itemName = vNameMatch ? vNameMatch[1] : (isSuite ? 'Hébergement' : 'Véhicule');
+          const discordId = dIdMatch ? dIdMatch[1] : null;
+          const clientName = cNameMatch ? cNameMatch[1] : 'Citoyen';
+          const luxuryTitle = isSuite ? itemName : formatLuxuryCarName(itemName);
+          const shortRef = (bookingId && bookingId !== 'new') ? bookingId.slice(0, 6).toUpperCase() : 'VIP';
+
+          if (bookingId && bookingId !== 'new') {
+            await supabaseService.updateBookingStatus(bookingId, 'completed').catch(() => {});
+            await supabaseService.addBookingMessage(
+              bookingId,
+              interaction.member?.displayName || interaction.user.username || 'Staff Richman',
+              interaction.user.id,
+              'staff',
+              isSuite
+                ? `🔑 Le check-out pour ${luxuryTitle} a été validé. Séjour clôturé.`
+                : `🔄 La restitution pour ${luxuryTitle} a été validée avec succès. Véhicule réintégré à la flotte.`
+            ).catch(() => {});
+          }
+
+          // Return item to confirmed (disponible)
+          if (itemId || itemName) {
+            if (!isSuite) {
+              let vTargetId = itemId;
+              const { data: vList } = await supabaseService.supabaseRequest(
+                (itemId && itemId.length > 10 && !itemId.includes('-')) 
+                  ? `vehicules?id=eq.${itemId}&limit=1`
+                  : `vehicules?name=ilike.${encodeURIComponent(itemName)}&limit=1`
+              );
+              if (vList && vList.length > 0) vTargetId = vList[0].id;
+              if (vTargetId) {
+                await supabaseService.syncItemStatus('fleet', vTargetId, 'confirmed').catch(() => {});
+                try {
+                  const LOCAL_PORT = config.PORT || 3001;
+                  await fetch(`http://127.0.0.1:${LOCAL_PORT}/api/update-fleet-vehicle-status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.API_SECRET}` },
+                    body: JSON.stringify({ vehicleId: vTargetId, status: 'confirmed' })
+                  }).catch(() => {});
+                } catch (e) {}
+              }
+            } else {
+              let sTargetId = itemId;
+              const { data: sList } = await supabaseService.supabaseRequest(
+                (itemId && itemId.length > 10 && !itemId.includes('-')) 
+                  ? `suites?id=eq.${itemId}&limit=1`
+                  : `suites?name=ilike.${encodeURIComponent(itemName)}&limit=1`
+              );
+              if (sList && sList.length > 0) sTargetId = sList[0].id;
+              if (sTargetId) {
+                await supabaseService.syncItemStatus('suite', sTargetId, 'confirmed').catch(() => {});
+                try {
+                  const LOCAL_PORT = config.PORT || 3001;
+                  await fetch(`http://127.0.0.1:${LOCAL_PORT}/api/update-hotel-suite-status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${config.API_SECRET}` },
+                    body: JSON.stringify({ suiteId: sTargetId, status: 'confirmed' })
+                  }).catch(() => {});
+                } catch (e) {}
+              }
+            }
+            updateBotPresence(client).catch(() => {});
+          }
+
+          // Send Return Confirmation DM
+          if (discordId && config.isValidSnowflake(discordId)) {
+            try {
+              const targetUser = await client.users.fetch(discordId).catch(() => null);
+              if (targetUser) {
+                const photoUrl = isSuite ? null : resolveVehiclePhotoUrl(itemName);
+                const returnDmEmbed = new EmbedBuilder()
+                  .setColor(0x10B981)
+                  .setTitle(isSuite ? '🏨 SÉJOUR CLÔTURÉ • MERCI DE VOTRE VISITE' : '🚗 RESTITUTION VALIDÉE • LOCATION TERMINÉE')
+                  .setDescription(
+                    `Bonjour **${clientName}**,\n\n` +
+                    `La restitution pour **${luxuryTitle}** a été validée par notre équipe.\n\n` +
+                    `🔖 **Référence Dossier :** \`#${shortRef}\`\n` +
+                    `📄 **Facture & Reçu :** Votre reçu officiel reste disponible dans votre [Espace Client](${config.SITE_URL}/client.html).\n\n` +
+                    `Toute l'équipe de Richman Estate vous remercie pour votre confiance !`
+                  )
+                  .setFooter({ text: 'Richman Estate' })
+                  .setTimestamp();
+
+                const dmFiles = [];
+                if (photoUrl && String(photoUrl).startsWith('http')) {
+                  try {
+                    const ext = photoUrl.split('?')[0].split('.').pop() || 'webp';
+                    const filename = `return_${shortRef || Date.now()}.${ext}`;
+                    const attachment = new AttachmentBuilder(photoUrl, { name: filename });
+                    returnDmEmbed.setImage(`attachment://${filename}`);
+                    dmFiles.push(attachment);
+                  } catch (e) {
+                    returnDmEmbed.setImage(photoUrl);
+                  }
+                }
+                await targetUser.send({ embeds: [returnDmEmbed], files: dmFiles }).catch(() => {});
+              }
+            } catch (dmErr) {}
+          }
+
+          const returnEmbed = new EmbedBuilder()
+            .setColor(0x10B981)
+            .setTitle(isSuite ? '🔑 CHECK-OUT EFFECTUÉ & SÉJOUR CLÔTURÉ' : '🔄 RESTITUTION VALIDÉE & LOCATION TERMINÉE')
+            .setDescription(
+              `Restitution validée par **<@${interaction.user.id}>**.\n\n` +
+              (isSuite 
+                ? `🏨 L'hébergement **${luxuryTitle}** a été libéré et inspecté.\n✅ Séjour archivé et disponible pour les prochaines réservations.`
+                : `🚗 Le véhicule **${luxuryTitle}** a été inspecté et réintégré à la flotte.\n✅ Caution débloquée et dossier clôturé avec succès.`
+              ) +
+              `\n\n⚠️ **Fermeture automatique de ce salon dans 5 secondes...**`
+            )
+            .setFooter({ text: 'Richman Estate' })
+            .setTimestamp();
+
+          await interaction.reply({ embeds: [returnEmbed] }).catch(() => {});
+
+          setTimeout(() => {
+            interaction.channel.delete('Restitution validée par le staff').catch(() => {});
+          }, 5000);
+          return;
         }
 
         // Action: Refuse Booking

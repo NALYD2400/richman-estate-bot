@@ -1190,6 +1190,7 @@ function startApiServer(client, customPort = null) {
             let embedTitle = '❌ DEMANDE DE RÉSERVATION REFUSÉE';
             let embedDesc = `Dossier refusé par **${String(staff_name || 'Staff Richman').slice(0, 50)}**.\nLe statut a été mis à jour et le client prévenu.`;
             let embedColor = 0xEF4444;
+            let components = [];
 
             if (isCompleted) {
               embedTitle = isSuite ? '🔑 SÉJOUR CLÔTURÉ • CHECK-OUT EFFECTUÉ' : '🔄 LOCATION TERMINÉE • VÉHICULE RESTITUÉ';
@@ -1205,6 +1206,29 @@ function startApiServer(client, customPort = null) {
                   : `🔑 **Mise à disposition :** Le statut du véhicule **${luxuryTitle}** a été passé en **En Location**.\n💬 **Remise des clés :** Vous pouvez dès à présent convenir du lieu et de l'heure du rendez-vous directement ici dans ce salon.`
                 );
               embedColor = 0x10B981;
+
+              // Move to Returns Category
+              if (config.CAT_TICKETS_RETOURS_ID && foundTicketChannel.setParent) {
+                foundTicketChannel.setParent(config.CAT_TICKETS_RETOURS_ID, { lockPermissions: false }).catch(() => {});
+              }
+
+              const returnActionRow = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                  .setCustomId(`btn_ticket_return_${booking_id || 'new'}`)
+                  .setLabel(isSuite ? '🔑 Valider le Check-out' : '🔄 Valider le Retour')
+                  .setStyle(ButtonStyle.Success)
+                  .setEmoji(isSuite ? '🔑' : '🔄'),
+                new ButtonBuilder()
+                  .setCustomId('btn_ticket_close')
+                  .setLabel('🔒 Clôturer & Archiver')
+                  .setStyle(ButtonStyle.Secondary)
+                  .setEmoji('🔒')
+              );
+              components = [returnActionRow];
+            } else if (isClosed) {
+              embedTitle = '🔒 DOSSIER CLÔTURÉ & ARCHIVÉ';
+              embedDesc = `Le dossier a été clôturé par **${String(staff_name || 'Staff Richman').slice(0, 50)}**.\n⚠️ **Suppression de ce salon dans 3 secondes...**`;
+              embedColor = 0x6B7280;
             }
 
             const statusEmbed = new EmbedBuilder()
@@ -1214,7 +1238,13 @@ function startApiServer(client, customPort = null) {
               .setFooter({ text: 'Richman Estate' })
               .setTimestamp();
 
-            await foundTicketChannel.send({ embeds: [statusEmbed] }).catch(() => {});
+            await foundTicketChannel.send({ embeds: [statusEmbed], components }).catch(() => {});
+
+            if (isClosed) {
+              setTimeout(() => {
+                foundTicketChannel.delete('Dossier clôturé depuis le panel admin').catch(() => {});
+              }, 3000);
+            }
           }
 
           // Sync vehicle or suite status in DB and Discord Showroom (rented if confirmed, confirmed/disponible if returned/cancelled)
@@ -1253,16 +1283,17 @@ function startApiServer(client, customPort = null) {
             }
           }
 
+          const shortRef = String(booking_id).slice(0, 6).toUpperCase();
+
           if (discord_id && config.isValidSnowflake(discord_id)) {
             try {
               const targetUser = await client.users.fetch(discord_id).catch(() => null);
               if (targetUser) {
                 const photoUrl = isSuite ? null : resolveVehiclePhotoUrl(displayName);
-                const shortRef = String(booking_id).slice(0, 6).toUpperCase();
 
-                let dmTitle = '❌ DEMANDE NON RETENUE • RICHMAN ESTATE';
-                let dmDesc = `Bonjour **${client_name || 'Citoyen'}**,\n\nVotre demande pour **${luxuryTitle}** n'a pas pu être retenue.\n\n🔖 **Référence :** \`#${shortRef}\``;
-                let dmColor = 0xEF4444;
+                let dmTitle = '';
+                let dmDesc = '';
+                let dmColor = 0x10B981;
 
                 if (isCompleted) {
                   dmTitle = isSuite ? '🏨 SÉJOUR CLÔTURÉ • MERCI DE VOTRE VISITE' : '🚗 RESTITUTION VALIDÉE • LOCATION TERMINÉE';
@@ -1284,39 +1315,58 @@ function startApiServer(client, customPort = null) {
                     (foundTicketChannel ? `💬 **Salon d'échange dédié :** <#${foundTicketChannel.id}>\n` : '') +
                     `🌐 **Espace Client :** [Accéder à mon espace en ligne](${config.SITE_URL}/client.html)`;
                   dmColor = 0x10B981;
+                } else if (isCancelled) {
+                  dmTitle = '❌ DEMANDE NON RETENUE • RICHMAN ESTATE';
+                  dmDesc = `Bonjour **${client_name || 'Citoyen'}**,\n\nVotre demande pour **${luxuryTitle}** n'a pas pu être retenue.\n\n🔖 **Référence :** \`#${shortRef}\``;
+                  dmColor = 0xEF4444;
                 }
 
-                const dmEmbed = new EmbedBuilder()
-                  .setColor(dmColor)
-                  .setTitle(dmTitle)
-                  .setDescription(dmDesc)
-                  .setFooter({ text: 'Richman Estate' })
-                  .setTimestamp();
+                if (dmTitle) {
+                  const dmEmbed = new EmbedBuilder()
+                    .setColor(dmColor)
+                    .setTitle(dmTitle)
+                    .setDescription(dmDesc)
+                    .setFooter({ text: 'Richman Estate' })
+                    .setTimestamp();
 
-                const dmFiles = [];
-                if (photoUrl && String(photoUrl).startsWith('http')) {
-                  try {
-                    const ext = photoUrl.split('?')[0].split('.').pop() || 'webp';
-                    const filename = `status_${shortRef || Date.now()}.${ext}`;
-                    const attachment = new AttachmentBuilder(photoUrl, { name: filename });
-                    dmEmbed.setImage(`attachment://${filename}`);
-                    dmFiles.push(attachment);
-                  } catch (e) {
-                    dmEmbed.setImage(photoUrl);
+                  const dmFiles = [];
+                  if (photoUrl && String(photoUrl).startsWith('http')) {
+                    try {
+                      const ext = photoUrl.split('?')[0].split('.').pop() || 'webp';
+                      const filename = `status_${shortRef || Date.now()}.${ext}`;
+                      const attachment = new AttachmentBuilder(photoUrl, { name: filename });
+                      dmEmbed.setImage(`attachment://${filename}`);
+                      dmFiles.push(attachment);
+                    } catch (e) {
+                      dmEmbed.setImage(photoUrl);
+                    }
                   }
+                  await targetUser.send({ embeds: [dmEmbed], files: dmFiles }).catch(() => {});
                 }
-                await targetUser.send({ embeds: [dmEmbed], files: dmFiles }).catch(() => {});
               }
             } catch (e) {}
           }
 
-          await supabaseService.addBookingMessage(
-            booking_id,
-            staff_name || 'Staff Richman',
-            '',
-            'staff',
-            isConfirmed ? `✅ Votre réservation pour ${displayName} a été VALIDÉE.` : `❌ Votre demande pour ${displayName} n'a pas été retenue.`
-          );
+          let chatMessage = '';
+          if (isConfirmed) {
+            chatMessage = `✅ Votre réservation pour ${displayName} a été VALIDÉE.`;
+          } else if (isCompleted) {
+            chatMessage = `🔄 La restitution pour ${displayName} a été validée avec succès. Véhicule réintégré à la flotte.`;
+          } else if (isClosed) {
+            chatMessage = `🔒 Le dossier #${shortRef} a été clôturé et archivé.`;
+          } else if (isCancelled) {
+            chatMessage = `❌ Votre demande pour ${displayName} n'a pas été retenue.`;
+          }
+
+          if (chatMessage) {
+            await supabaseService.addBookingMessage(
+              booking_id,
+              staff_name || 'Staff Richman',
+              '',
+              'staff',
+              chatMessage
+            );
+          }
 
           return sendJSON(200, { success: true, channelFound: !!foundTicketChannel });
         } catch (err) {

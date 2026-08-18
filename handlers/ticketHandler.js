@@ -11,6 +11,7 @@ const {
   EmbedBuilder 
 } = require('discord.js');
 const config = require('../config/constants');
+const supabaseService = require('../services/supabase');
 const { resolveVehiclePhotoUrl } = require('../services/vehicleUtils');
 
 async function createBookingTicket(client, bookingData) {

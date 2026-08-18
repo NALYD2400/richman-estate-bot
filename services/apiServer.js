@@ -1047,8 +1047,7 @@ function startApiServer(client, customPort = null) {
                     `• **Numéro de Référence :** \`#${shortRef.toUpperCase()}\`\n` +
                     `• **Contact :** \`${String(phone || 'Non renseigné').slice(0, 30)}\`\n` +
                     `• **Statut actuel :** ⏳ *En attente de prise en charge*\n\n` +
-                    `💬 **Votre salon dédié :** <#${ticketChannel.id}>\n` +
-                    `🌐 **Votre Espace Client :** [Accéder à mon Dossier](${config.SITE_URL}/client.html)\n\n` +
+                    `💬 **Votre salon dédié :** <#${ticketChannel.id}>\n\n` +
                     `Vous pouvez échanger directement avec l'équipe Richman dans votre salon <#${ticketChannel.id}>.`
                   )
                   .setFooter({ text: 'Richman Estate' })

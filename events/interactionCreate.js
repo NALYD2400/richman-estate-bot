@@ -696,7 +696,6 @@ module.exports = {
           return await interaction.editReply({ embeds: [refuseEmbed] }).catch(() => {});
         }
       }
-      }
     } catch (err) {
       console.error("❌ Erreur InteractionCreate :", err);
       if (interaction && !interaction.replied && !interaction.deferred) {

@@ -179,6 +179,8 @@ module.exports = {
 
         // Action: Close Ticket
         if (customId === 'btn_ticket_close' || customId.startsWith('close_ticket_')) {
+          await interaction.deferReply({ ephemeral: false }).catch(() => {});
+
           const topic = interaction.channel.topic || '';
           const bIdMatch = topic.match(/booking_id:([^|]+)/);
           const vIdMatch = topic.match(/(?:item_id|vehicle_id):([^|]+)/);
@@ -249,7 +251,7 @@ module.exports = {
             .setFooter({ text: 'Richman Estate' })
             .setTimestamp();
 
-          await interaction.reply({ embeds: [closeEmbed] }).catch(() => {});
+          await interaction.editReply({ embeds: [closeEmbed] }).catch(() => {});
 
           setTimeout(() => {
             interaction.channel.delete('Ticket clôturé par le staff').catch(() => {});
@@ -259,6 +261,8 @@ module.exports = {
 
         // Action: Confirm / Accept Booking
         if (customId.startsWith('btn_ticket_accept_loc_') || customId.startsWith('confirm_booking_')) {
+          await interaction.deferReply({ ephemeral: false }).catch(() => {});
+
           let bookingId = customId.replace('btn_ticket_accept_loc_', '').replace('confirm_booking_', '').trim();
           const topic = interaction.channel.topic || '';
           const vIdMatch = topic.match(/(?:item_id|vehicle_id):([^|]+)/);
@@ -379,7 +383,11 @@ module.exports = {
 
           // Move channel to Returns category if configured
           if (config.CAT_TICKETS_RETOURS_ID && interaction.channel.setParent) {
-            interaction.channel.setParent(config.CAT_TICKETS_RETOURS_ID, { lockPermissions: false }).catch(() => {});
+            try {
+              await interaction.channel.setParent(config.CAT_TICKETS_RETOURS_ID, { lockPermissions: false });
+            } catch (moveErr) {
+              console.warn("⚠️ Déplacement vers la catégorie retour :", moveErr.message);
+            }
           }
 
           const luxuryTitle = isSuite ? itemName : formatLuxuryCarName(itemName);
@@ -417,11 +425,13 @@ module.exports = {
               .setEmoji('🔒')
           );
 
-          return interaction.reply({ embeds: [statusEmbed], components: [returnActionRow] }).catch(() => {});
+          return await interaction.editReply({ embeds: [statusEmbed], components: [returnActionRow] }).catch(() => {});
         }
 
         // Action: Validate Return / Check-out
         if (customId.startsWith('btn_ticket_return_') || customId.startsWith('return_booking_')) {
+          await interaction.deferReply({ ephemeral: false }).catch(() => {});
+
           let bookingId = customId.replace('btn_ticket_return_', '').replace('return_booking_', '').trim();
           const topic = interaction.channel.topic || '';
           const vIdMatch = topic.match(/(?:item_id|vehicle_id):([^|]+)/);
@@ -549,7 +559,7 @@ module.exports = {
             .setFooter({ text: 'Richman Estate' })
             .setTimestamp();
 
-          await interaction.reply({ embeds: [returnEmbed] }).catch(() => {});
+          await interaction.editReply({ embeds: [returnEmbed] }).catch(() => {});
 
           setTimeout(() => {
             interaction.channel.delete('Restitution validée par le staff').catch(() => {});
@@ -559,6 +569,8 @@ module.exports = {
 
         // Action: Refuse Booking
         if (customId.startsWith('btn_ticket_refuse_loc_') || customId.startsWith('refuse_booking_')) {
+          await interaction.deferReply({ ephemeral: false }).catch(() => {});
+
           let bookingId = customId.replace('btn_ticket_refuse_loc_', '').replace('refuse_booking_', '').trim();
           const topic = interaction.channel.topic || '';
           const dIdMatch = topic.match(/discord_id:([^|]+)/);
@@ -679,8 +691,9 @@ module.exports = {
             .setFooter({ text: 'Richman Estate' })
             .setTimestamp();
 
-          return interaction.reply({ embeds: [refuseEmbed] }).catch(() => {});
+          return await interaction.editReply({ embeds: [refuseEmbed] }).catch(() => {});
         }
+      }
       }
     } catch (err) {
       console.error("❌ Erreur InteractionCreate :", err);

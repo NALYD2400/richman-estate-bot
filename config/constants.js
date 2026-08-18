@@ -22,7 +22,7 @@ const config = {
   ROLE_CONCIERGE_ID: process.env.ROLE_CONCIERGE_ID,
   ROLE_PARTENAIRE_ID: process.env.ROLE_PARTENAIRE_ID,
   MASTER_OWNER_ID: process.env.MASTER_OWNER_ID || '985083967642423366',
-  SITE_URL: (process.env.SITE_URL || 'https://richman-estate.com').replace(/\/+$/, ''),
+  SITE_URL: (process.env.SITE_URL || 'https://richman-estate.vercel.app').replace(/\/+$/, ''),
   
   CAT_TICKETS_LOCATIONS_ID: process.env.CAT_TICKETS_LOCATIONS_ID || process.env.CAT_TICKETS_CARS_ID || '1537552582418104462',
   CAT_TICKETS_SUITES_ID: process.env.CAT_TICKETS_SUITES_ID || '1537780514453463152',

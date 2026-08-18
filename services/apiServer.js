@@ -1171,6 +1171,8 @@ function startApiServer(client, customPort = null) {
           if (!booking_id || !status) return sendError(400, 'booking_id et status requis');
 
           const isConfirmed = status === 'confirmed';
+          const isCompleted = status === 'completed' || status === 'returned';
+          const isClosed = status === 'closed';
           const isSuite = type === 'suite';
           const displayName = String(item_name || (isSuite ? 'Hébergement' : 'Véhicule')).slice(0, 50);
 
@@ -1185,29 +1187,37 @@ function startApiServer(client, customPort = null) {
           const luxuryTitle = isSuite ? displayName : formatLuxuryCarName(displayName);
 
           if (foundTicketChannel) {
+            let embedTitle = '❌ DEMANDE DE RÉSERVATION REFUSÉE';
+            let embedDesc = `Dossier refusé par **${String(staff_name || 'Staff Richman').slice(0, 50)}**.\nLe statut a été mis à jour et le client prévenu.`;
+            let embedColor = 0xEF4444;
+
+            if (isCompleted) {
+              embedTitle = isSuite ? '🔑 SÉJOUR CLÔTURÉ • CHECK-OUT EFFECTUÉ' : '🔄 LOCATION TERMINÉE • VÉHICULE RESTITUÉ';
+              embedDesc = isSuite
+                ? `Check-out validé par **${String(staff_name || 'Staff Richman').slice(0, 50)}**.\n🏨 L'hébergement **${luxuryTitle}** a été libéré et inspecté.\n✅ Caution débloquée et séjour clôturé avec succès.`
+                : `Restitution validée par **${String(staff_name || 'Staff Richman').slice(0, 50)}**.\n🚗 Le véhicule **${luxuryTitle}** a été réceptionné et réintégré à la flotte.\n✅ Caution débloquée et location clôturée avec succès.`;
+              embedColor = 0x10B981;
+            } else if (isConfirmed) {
+              embedTitle = isSuite ? '✅ RÉSERVATION ACCEPTÉE ET VALIDÉE' : '✅ LOCATION ACCEPTÉE ET VALIDÉE';
+              embedDesc = `Dossier validé par **${String(staff_name || 'Staff Richman').slice(0, 50)}**.\n\n` +
+                (isSuite
+                  ? `🏨 **Hébergement :** La réservation pour **${luxuryTitle}** a été confirmée.\n🔑 **Remise des clés :** Vous pouvez dès à présent convenir des modalités d'arrivée directement ici dans ce salon.`
+                  : `🔑 **Mise à disposition :** Le statut du véhicule **${luxuryTitle}** a été passé en **En Location**.\n💬 **Remise des clés :** Vous pouvez dès à présent convenir du lieu et de l'heure du rendez-vous directement ici dans ce salon.`
+                );
+              embedColor = 0x10B981;
+            }
+
             const statusEmbed = new EmbedBuilder()
-              .setColor(isConfirmed ? 0x10B981 : 0xEF4444)
-              .setTitle(
-                isConfirmed
-                  ? (isSuite ? '✅ RÉSERVATION ACCEPTÉE ET VALIDÉE' : '✅ LOCATION ACCEPTÉE ET VALIDÉE')
-                  : '❌ DEMANDE DE RÉSERVATION REFUSÉE'
-              )
-              .setDescription(
-                isConfirmed
-                  ? `Dossier validé par **${String(staff_name || 'Staff Richman').slice(0, 50)}**.\n\n` +
-                    (isSuite
-                      ? `🏨 **Hébergement :** La réservation pour **${luxuryTitle}** a été confirmée.\n🔑 **Remise des clés :** Vous pouvez dès à présent convenir des modalités d'arrivée directement ici dans ce salon.`
-                      : `🔑 **Mise à disposition :** Le statut du véhicule **${luxuryTitle}** a été passé en **En Location**.\n💬 **Remise des clés :** Vous pouvez dès à présent convenir du lieu et de l'heure du rendez-vous directement ici dans ce salon.`
-                    )
-                  : `Dossier refusé par **${String(staff_name || 'Staff Richman').slice(0, 50)}**.\nLe statut a été mis à jour et le client prévenu.`
-              )
+              .setColor(embedColor)
+              .setTitle(embedTitle)
+              .setDescription(embedDesc)
               .setFooter({ text: 'Richman Estate' })
               .setTimestamp();
 
             await foundTicketChannel.send({ embeds: [statusEmbed] }).catch(() => {});
           }
 
-          // Sync vehicle or suite status in DB and Discord Showroom
+          // Sync vehicle or suite status in DB and Discord Showroom (rented if confirmed, confirmed/disponible if returned/cancelled)
           if (displayName) {
             const newStatus = isConfirmed ? 'rented' : 'confirmed';
             if (!isSuite) {
@@ -1249,29 +1259,37 @@ function startApiServer(client, customPort = null) {
               if (targetUser) {
                 const photoUrl = isSuite ? null : resolveVehiclePhotoUrl(displayName);
                 const shortRef = String(booking_id).slice(0, 6).toUpperCase();
+
+                let dmTitle = '❌ DEMANDE NON RETENUE • RICHMAN ESTATE';
+                let dmDesc = `Bonjour **${client_name || 'Citoyen'}**,\n\nVotre demande pour **${luxuryTitle}** n'a pas pu être retenue.\n\n🔖 **Référence :** \`#${shortRef}\``;
+                let dmColor = 0xEF4444;
+
+                if (isCompleted) {
+                  dmTitle = isSuite ? '🏨 SÉJOUR CLÔTURÉ • MERCI DE VOTRE VISITE' : '🚗 RESTITUTION VALIDÉE • LOCATION TERMINÉE';
+                  dmDesc = `Bonjour **${client_name || 'Citoyen'}**,\n\n` +
+                    `La restitution pour **${luxuryTitle}** a été validée par notre équipe.\n\n` +
+                    `🔖 **Référence Dossier :** \`#${shortRef}\`\n` +
+                    `📄 **Facture & Reçu :** Votre reçu officiel reste disponible dans votre [Espace Client](${config.SITE_URL}/client.html).\n\n` +
+                    `Toute l'équipe de Richman Estate vous remercie pour votre confiance !`;
+                  dmColor = 0x10B981;
+                } else if (isConfirmed) {
+                  dmTitle = isSuite ? '🏨 RÉSERVATION CONFIRMÉE • RICHMAN ESTATE' : '🎉 LOCATION CONFIRMÉE • RICHMAN ESTATE';
+                  dmDesc = `Bonjour **${client_name || 'Citoyen'}**,\n\n` +
+                    `Votre demande de réservation pour **${luxuryTitle}** a été **VALIDÉE** !\n\n` +
+                    `🔖 **Référence Dossier :** \`#${shortRef}\`\n` +
+                    (isSuite 
+                      ? `🔑 **Remise des clés :** Votre hébergement est prêt pour votre séjour.\n`
+                      : `🔑 **Mise à disposition :** Votre véhicule est préparé et prêt pour la remise des clés.\n`
+                    ) +
+                    (foundTicketChannel ? `💬 **Salon d'échange dédié :** <#${foundTicketChannel.id}>\n` : '') +
+                    `🌐 **Espace Client :** [Accéder à mon espace en ligne](${config.SITE_URL}/client.html)`;
+                  dmColor = 0x10B981;
+                }
+
                 const dmEmbed = new EmbedBuilder()
-                  .setColor(isConfirmed ? 0x10B981 : 0xEF4444)
-                  .setTitle(isConfirmed 
-                    ? (isSuite ? '🏨 RÉSERVATION CONFIRMÉE • RICHMAN ESTATE' : '🎉 LOCATION CONFIRMÉE • RICHMAN ESTATE')
-                    : '❌ DEMANDE NON RETENUE • RICHMAN ESTATE'
-                  )
-                  .setDescription(
-                    isConfirmed
-                      ? `Bonjour **${client_name || 'Citoyen'}**,\n\n` +
-                        `Votre demande de réservation pour **${luxuryTitle}** a été **VALIDÉE** !\n\n` +
-                        `🔖 **Référence Dossier :** \`#${shortRef}\`\n` +
-                        (isSuite 
-                          ? `🔑 **Remise des clés & Digicodes :** Votre hébergement est prêt pour votre séjour.\n`
-                          : `🔑 **Mise à disposition :** Votre véhicule est préparé et prêt pour la remise des clés.\n`
-                        ) +
-                        (foundTicketChannel ? `💬 **Salon d'échange dédié :** <#${foundTicketChannel.id}>\n` : '') +
-                        `🌐 **Espace Client :** [Accéder à mon espace en ligne](${config.SITE_URL}/client.html)`
-                      : `Bonjour **${client_name || 'Citoyen'}**,\n\n` +
-                        `Votre demande de réservation pour **${luxuryTitle}** n'a pas pu être validée pour le créneau demandé.\n\n` +
-                        `🔖 **Référence Dossier :** \`#${shortRef}\`\n` +
-                        `🌐 **Espace Client :** [Voir mon Dossier](${config.SITE_URL}/client.html)\n\n` +
-                        `L'équipe Richman reste à votre disposition si vous souhaitez choisir un autre véhicule ou une autre date.`
-                  )
+                  .setColor(dmColor)
+                  .setTitle(dmTitle)
+                  .setDescription(dmDesc)
                   .setFooter({ text: 'Richman Estate' })
                   .setTimestamp();
 

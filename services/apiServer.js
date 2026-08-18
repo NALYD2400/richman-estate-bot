@@ -1074,10 +1074,14 @@ function startApiServer(client, customPort = null) {
         try {
           const { type, client_name, item_name, amount, dates, phone, notes, booking_id } = parsedBody;
           const isHotel = (type === 'suite' || type === 'appartement' || type === 'chambre');
-          const channelId = isHotel ? config.CHANNEL_RESERVATIONS_HOTEL : config.CHANNEL_DEMANDES_LOCATIONS;
+          const channelId = isHotel 
+            ? config.CHANNEL_RESERVATIONS_HOTEL 
+            : (config.CHANNEL_DEMANDES_LOCATIONS || config.CHANNEL_ADMIN_LOGS);
+
+          if (!channelId) return sendJSON(200, { success: true, message: 'Notification skipped (no channel configured)' });
 
           const channel = await client.channels.fetch(channelId).catch(() => null);
-          if (!channel) return sendError(404, 'Salon de notification introuvable');
+          if (!channel) return sendJSON(200, { success: true, message: 'Notification skipped (channel not accessible)' });
 
           const embed = new EmbedBuilder()
             .setColor(isHotel ? 0xA855F7 : 0xC5A880)
@@ -1096,7 +1100,7 @@ function startApiServer(client, customPort = null) {
             .setFooter({ text: 'Richman Estate • Support & Réservations 24/7' })
             .setTimestamp();
 
-          await channel.send({ embeds: [embed] });
+          await channel.send({ embeds: [embed] }).catch(() => {});
           return sendJSON(200, { success: true, channelId });
         } catch (err) {
           return sendError(500, 'Erreur envoi notification réservation', err.message);

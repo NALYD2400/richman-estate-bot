@@ -398,6 +398,7 @@ module.exports = {
             .setFooter({ text: 'Richman Estate' })
             .setTimestamp();
 
+          const invoiceUrl = `${config.SITE_URL}/client.html?invoice=${bookingId || 'new'}`;
           const returnActionRow = new ActionRowBuilder().addComponents(
             new ButtonBuilder()
               .setCustomId(`btn_ticket_return_${bookingId || 'new'}`)
@@ -405,8 +406,13 @@ module.exports = {
               .setStyle(ButtonStyle.Success)
               .setEmoji(isSuite ? '🔑' : '🔄'),
             new ButtonBuilder()
+              .setLabel('Facture')
+              .setStyle(ButtonStyle.Link)
+              .setURL(invoiceUrl)
+              .setEmoji('📄'),
+            new ButtonBuilder()
               .setCustomId('btn_ticket_close')
-              .setLabel('🔒 Clôturer & Archiver')
+              .setLabel('🔒 Clôturer')
               .setStyle(ButtonStyle.Secondary)
               .setEmoji('🔒')
           );

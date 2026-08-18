@@ -152,6 +152,7 @@ async function createBookingTicket(client, bookingData) {
   }
 
   // Action Buttons
+  const invoiceUrl = `${config.SITE_URL}/client.html?invoice=${actualBookingId || 'new'}`;
   const actionRow = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId(`btn_ticket_accept_loc_${actualBookingId || 'new'}`)
@@ -163,6 +164,11 @@ async function createBookingTicket(client, bookingData) {
       .setLabel('Refuser')
       .setStyle(ButtonStyle.Danger)
       .setEmoji('❌'),
+    new ButtonBuilder()
+      .setLabel('Facture')
+      .setStyle(ButtonStyle.Link)
+      .setURL(invoiceUrl)
+      .setEmoji('📄'),
     new ButtonBuilder()
       .setCustomId('btn_ticket_close')
       .setLabel('Clôturer')
@@ -238,7 +244,20 @@ async function createBookingTicket(client, bookingData) {
         }
       }
 
-      await targetDiscordUser.send({ embeds: [dmEmbed], files: dmFiles }).catch(() => {});
+      const dmActionRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setLabel('Facture')
+          .setStyle(ButtonStyle.Link)
+          .setURL(invoiceUrl)
+          .setEmoji('📄'),
+        new ButtonBuilder()
+          .setLabel('Mon Espace Client')
+          .setStyle(ButtonStyle.Link)
+          .setURL(`${config.SITE_URL}/client.html`)
+          .setEmoji('🌐')
+      );
+
+      await targetDiscordUser.send({ embeds: [dmEmbed], components: [dmActionRow], files: dmFiles }).catch(() => {});
     } catch (dmErr) {
       console.warn("⚠️ Impossible d'envoyer le MP au client :", dmErr.message);
     }

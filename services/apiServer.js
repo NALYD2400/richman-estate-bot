@@ -1212,6 +1212,7 @@ function startApiServer(client, customPort = null) {
                 foundTicketChannel.setParent(config.CAT_TICKETS_RETOURS_ID, { lockPermissions: false }).catch(() => {});
               }
 
+              const invoiceUrl = `${config.SITE_URL}/client.html?invoice=${booking_id || 'new'}`;
               const returnActionRow = new ActionRowBuilder().addComponents(
                 new ButtonBuilder()
                   .setCustomId(`btn_ticket_return_${booking_id || 'new'}`)
@@ -1219,8 +1220,13 @@ function startApiServer(client, customPort = null) {
                   .setStyle(ButtonStyle.Success)
                   .setEmoji(isSuite ? '🔑' : '🔄'),
                 new ButtonBuilder()
+                  .setLabel('Facture')
+                  .setStyle(ButtonStyle.Link)
+                  .setURL(invoiceUrl)
+                  .setEmoji('📄'),
+                new ButtonBuilder()
                   .setCustomId('btn_ticket_close')
-                  .setLabel('🔒 Clôturer & Archiver')
+                  .setLabel('🔒 Clôturer')
                   .setStyle(ButtonStyle.Secondary)
                   .setEmoji('🔒')
               );

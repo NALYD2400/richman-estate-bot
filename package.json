@@ -3,9 +3,6 @@
   "version": "2.0.0",
   "description": "Bot Discord officiel de Richman Estate RP — Conciergerie 24/7, Réservations, Salons Tickets & Synchronisation Web",
   "main": "index.js",
-  "engines": {
-    "node": ">=20.0.0 <22.0.0"
-  },
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js"
@@ -21,8 +18,7 @@
   "author": "NALYD / Richman Estate",
   "license": "MIT",
   "dependencies": {
-    "discord.js": "^14.18.0",
-    "dotenv": "^16.4.5",
-    "undici": "^6.21.1"
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5"
   }
 }

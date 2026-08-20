@@ -25,14 +25,7 @@ const config = require('../config/constants');
 const ticketHandler = require('../handlers/ticketHandler');
 const supabaseService = require('./supabase');
 const { updateBotPresence } = require('../events/ready');
-const {
-  formatLuxuryCarName,
-  formatPrice,
-  getVehicleEmoji,
-  getSuiteEmoji,
-  resolveVehiclePhotoUrl,
-  resolveSuitePhotoUrl
-} = require('./vehicleUtils');
+const { formatLuxuryCarName, resolveVehiclePhotoUrl, resolveSuitePhotoUrl } = require('./vehicleUtils');
 
 // In-Memory Rate Limiting (bucketed : 'global', 'write', ...)
 const ipRateLimits = new Map();
@@ -350,56 +343,39 @@ function getSuiteForumTagIds(tags, isAvail, sName, sSpecs) {
 
 // Décode le champ specs JSON des véhicules ({ plate, class, specs_text })
 function parseVehicleSpecs(item) {
-  let displaySpecs = '';
+  let displaySpecs = item.specs || '';
   let displayPlate = 'LXS-RICH';
   let displayClass = 'SUPER';
-  let mediaUrl = '';
-
-  if (item) {
-    if (item.specs && typeof item.specs === 'string' && item.specs.startsWith('{')) {
-      try {
-        const meta = JSON.parse(item.specs);
-        displaySpecs = meta.specs_text || meta.specs || '';
-        displayPlate = meta.plate || item.plate || 'LXS-RICH';
-        displayClass = meta.class || meta.category || item.category || 'SUPER';
-        mediaUrl = meta.media_url || '';
-      } catch (e) {}
-    } else if (item.specs && typeof item.specs === 'string') {
-      displaySpecs = item.specs;
+  try {
+    if (item.specs && item.specs.startsWith('{')) {
+      const meta = JSON.parse(item.specs);
+      displaySpecs = meta.specs_text || '';
+      displayPlate = meta.plate || 'LXS-RICH';
+      displayClass = meta.class || 'SUPER';
     }
-
-    if (item.plate) displayPlate = item.plate;
-    if (item.category && (!displayClass || displayClass === 'SUPER')) displayClass = item.category.toUpperCase();
-    if (item.media_urls && !mediaUrl) mediaUrl = item.media_urls;
-  }
-
-  if (!displaySpecs) {
-    displaySpecs = `Gamme ${displayClass.toUpperCase()}`;
-  }
-
-  return { displaySpecs, displayPlate: displayPlate.toUpperCase(), displayClass: displayClass.toUpperCase(), mediaUrl };
+  } catch (e) {}
+  return { displaySpecs, displayPlate, displayClass };
 }
 
 // Embed + bouton showroom d'un véhicule (footer = ID Supabase, base du matching thread)
 function buildVehicleShowroom(item, isAvailable, { photoUrl, specsText, plate, vehicleClass } = {}) {
   const parsed = parseVehicleSpecs(item);
-  const displayClass = vehicleClass !== undefined ? vehicleClass : parsed.displayClass;
-  const specs = specsText !== undefined ? specsText : (parsed.displaySpecs || `Gamme ${displayClass}`);
+  const specs = specsText !== undefined ? specsText : parsed.displaySpecs;
   const displayPlate = plate !== undefined ? plate : parsed.displayPlate;
+  const displayClass = vehicleClass !== undefined ? vehicleClass : parsed.displayClass;
   const luxuryTitle = formatLuxuryCarName(item.name);
-  const resolvedPhoto = photoUrl !== undefined ? photoUrl : resolveVehiclePhotoUrl(item.name, item.specs || item.media_urls || parsed.mediaUrl);
-  const formattedPrice = formatPrice(item.price, ' / j');
+  const resolvedPhoto = photoUrl !== undefined ? photoUrl : resolveVehiclePhotoUrl(item.name, item.specs);
 
   const embed = new EmbedBuilder()
     .setColor(isAvailable ? 0x10B981 : 0xEF4444)
     .setTitle(`${isAvailable ? '🟢 DISPONIBLE' : '🔴 EN LOCATION'} • ${luxuryTitle.toUpperCase()}`)
     .addFields(
-      { name: '🏷️ Tarif Jour', value: `\`${formattedPrice}\``, inline: true },
+      { name: '🏷️ Tarif Jour', value: `\`${item.price || 'Sur devis'}\``, inline: true },
       { name: '🔢 Plaque', value: `\`${displayPlate}\``, inline: true },
       { name: '⚡ Catégorie', value: `\`${displayClass}\``, inline: true },
-      { name: '⚙️ Motorisation & Specs', value: specs || `Gamme ${displayClass}`, inline: false }
+      { name: '⚙️ Motorisation & Specs', value: specs || 'Motorisation préparée haute performance, finitions carbone et intérieur cuir sur mesure.', inline: false }
     )
-    .setFooter({ text: `ID: #${(item.id || '').slice(0, 8).toUpperCase()} • Richman Estate Showroom` })
+    .setFooter({ text: `ID: #${item.id.slice(0, 8).toUpperCase()} • Richman Estate Showroom` })
     .setImage(resolvedPhoto)
     .setTimestamp();
 
@@ -410,26 +386,22 @@ function buildVehicleShowroom(item, isAvailable, { photoUrl, specsText, plate, v
       .setURL(`${config.SITE_URL}/vehicules.html?select=${encodeURIComponent(String(item.name).toLowerCase().trim())}`)
   );
 
-  return { embed, row, luxuryTitle, parsed };
+  return { embed, row, luxuryTitle };
 }
 
 // Embed + bouton showroom d'une suite (footer = ID Supabase)
 async function buildSuiteShowroom(item, isAvailable, { photoUrl, specsText } = {}) {
+  const specs = specsText !== undefined ? specsText : (item.specs || '');
   const suiteTitle = String(item.name || 'Suite').trim();
-  const specs = specsText !== undefined ? specsText : (item.specs || 'Hébergement haut de gamme, service hôtelier d\'exception.');
   const resolvedPhoto = photoUrl !== undefined ? photoUrl : resolveSuitePhotoUrl(item.name, item.media_urls);
-  const formattedPrice = formatPrice(item.price, ' / nuit');
-  const categoryUpper = String(item.category || (suiteTitle.toLowerCase().includes('villa') ? 'VILLA' : suiteTitle.toLowerCase().includes('penthouse') ? 'PENTHOUSE' : 'SUITE')).toUpperCase();
-  const roomInfo = item.room_number ? (String(item.room_number).startsWith('#') ? String(item.room_number) : `#${item.room_number}`) : 'Richman Hills';
 
   const embed = new EmbedBuilder()
     .setColor(isAvailable ? 0x10B981 : 0xEF4444)
     .setTitle(`${isAvailable ? '🟢 DISPONIBLE' : '🔴 OCCUPÉE'} • ${suiteTitle.toUpperCase()}`)
     .addFields(
-      { name: '🏷️ Tarif Nuit', value: `\`${formattedPrice}\``, inline: true },
-      { name: '📍 Emplacement', value: `\`${roomInfo} • Domaine Privé\``, inline: true },
-      { name: '⚡ Catégorie', value: `\`${categoryUpper}\``, inline: true },
-      { name: '✨ Caractéristiques & Confort', value: specs || 'Hébergement haut de gamme, room service et conciergerie 24/7.', inline: false }
+      { name: '🏷️ Tarif Nuit', value: `\`${item.price || 'Sur devis'}\``, inline: true },
+      { name: '📍 Domaine', value: '`Richman Hills • Domaine Privé`', inline: true },
+      { name: '✨ Caractéristiques', value: specs || 'Hébergement haut de gamme, service hôtelier d\'exception.', inline: false }
     )
     .setFooter({ text: `ID: #${(item.id || '').slice(0, 8).toUpperCase()} • Richman Estate Hotel & Suites` })
     .setTimestamp();
@@ -605,24 +577,14 @@ function startApiServer(client, customPort = null) {
       }
 
       try {
-        const guild = client.guilds?.cache?.get(config.GUILD_ID) || client.guilds?.cache?.first() || (client.guilds?.fetch ? await client.guilds.fetch(config.GUILD_ID).catch(() => null) : null);
-        if (!guild) {
-          return sendJSON(200, {
-            onServer: false,
-            inGuild: false,
-            hasMembreRole: false,
-            hasCitoyenRole: false,
-            canContact: false,
-            nickname: null,
-            roles: []
-          });
-        }
+        const guild = client.guilds.cache.get(config.GUILD_ID) || client.guilds.cache.first();
+        if (!guild) return sendError(503, 'Serveur Discord inaccessible');
 
         let member = await guild.members.fetch(discordId).catch(() => null);
 
         if (!member && providerToken && config.TOKEN) {
           try {
-            const joinResp = await fetch(`https://canary.discord.com/api/guilds/${guild.id}/members/${discordId}`, {
+            const joinResp = await fetch(`https://discord.com/api/guilds/${guild.id}/members/${discordId}`, {
               method: 'PUT',
               headers: {
                 'Authorization': `Bot ${config.TOKEN}`,
@@ -834,7 +796,7 @@ function startApiServer(client, customPort = null) {
           // If member is not yet in guild and providerToken is supplied, auto-join them
           if (!member && providerToken && config.TOKEN) {
             try {
-              const joinResp = await fetch(`https://canary.discord.com/api/guilds/${guild.id}/members/${discordId}`, {
+              const joinResp = await fetch(`https://discord.com/api/guilds/${guild.id}/members/${discordId}`, {
                 method: 'PUT',
                 headers: {
                   'Authorization': `Bot ${config.TOKEN}`,
@@ -1665,75 +1627,71 @@ function startApiServer(client, customPort = null) {
 
           const resp = await supabaseService.supabaseRequest('vehicules?select=*&order=created_at.desc');
           const vehicles = Array.isArray(resp.data) ? resp.data : [];
+
           const isForum = channel.type === ChannelType.GuildForum;
 
-          sendJSON(200, { success: true, count: vehicles.length, isForum });
-
           if (isForum) {
-            (async () => {
+            try {
+              await channel.setDefaultForumLayout(ForumLayoutType.GalleryView).catch(() => {});
+            } catch (e) {}
+
+            let availableTags = channel.availableTags || [];
+            if (availableTags.length === 0) {
               try {
-                await channel.setDefaultForumLayout(ForumLayoutType.GalleryView).catch(() => {});
-              } catch (e) {}
-
-              let availableTags = channel.availableTags || [];
-              if (availableTags.length === 0) {
-                try {
-                  await channel.setAvailableTags([
-                    { name: '🟢 Disponible' },
-                    { name: '🔴 En Location' },
-                    { name: '⚡ Supercars' },
-                    { name: '🏎️ Sportives' },
-                    { name: '🏛️ Classiques' },
-                    { name: '🚙 SUV & 4x4' },
-                    { name: '💪 Muscle Cars' },
-                    { name: '👑 Prestige' },
-                    { name: '🚗 Voitures' },
-                    { name: '🏍️ Motos' },
-                    { name: '🛥️ Bateaux' },
-                    { name: '🚁 Hélicoptères' },
-                    { name: '✈️ Avions' }
-                  ]);
-                  const refetched = await client.channels.fetch(channelId);
-                  availableTags = refetched.availableTags || [];
-                } catch (tagErr) {
-                  console.warn("Could not set forum tags:", tagErr.message);
-                }
+                await channel.setAvailableTags([
+                  { name: '🟢 Disponible' },
+                  { name: '🔴 En Location' },
+                  { name: '⚡ Supercars' },
+                  { name: '🏎️ Sportives' },
+                  { name: '🏛️ Classiques' },
+                  { name: '🚙 SUV & 4x4' },
+                  { name: '💪 Muscle Cars' },
+                  { name: '👑 Prestige' },
+                  { name: '🚗 Voitures' },
+                  { name: '🏍️ Motos' },
+                  { name: '🛥️ Bateaux' },
+                  { name: '🚁 Hélicoptères' },
+                  { name: '✈️ Avions' }
+                ]);
+                const refetched = await client.channels.fetch(channelId);
+                availableTags = refetched.availableTags || [];
+              } catch (tagErr) {
+                console.warn("Could not set forum tags:", tagErr.message);
               }
+            }
 
-              // Clean existing threads
+            // Clean existing threads
+            try {
+              const allThreads = await fetchAllForumThreads(channel);
+              for (const t of allThreads) {
+                await t.delete().catch(() => {});
+              }
+            } catch (cleanErr) {
+              console.warn("Clean forum threads warning:", cleanErr.message);
+            }
+
+            // Create thread per vehicle
+            for (const item of vehicles) {
+              const isAvailable = item.status === 'confirmed';
+              const { embed: vEmbed, row: vRow, luxuryTitle } = buildVehicleShowroom(item, isAvailable);
+              const threadTitle = `🏎️ ${luxuryTitle.toUpperCase()}`.slice(0, 100);
+              const appliedTags = getForumTagIds(availableTags, isAvailable, undefined, item.specs, item.name);
+
               try {
-                const allThreads = await fetchAllForumThreads(channel);
-                for (const t of allThreads) {
-                  await t.delete().catch(() => {});
-                }
-              } catch (cleanErr) {
-                console.warn("Clean forum threads warning:", cleanErr.message);
+                await channel.threads.create({
+                  name: threadTitle,
+                  message: { embeds: [vEmbed], components: [vRow] },
+                  appliedTags: appliedTags
+                });
+              } catch (createErr) {
+                console.error(`Erreur création thread forum pour ${item.name}:`, createErr.message);
               }
 
-              // Create thread per vehicle
-              for (const item of vehicles) {
-                const isAvailable = item.status === 'confirmed';
-                const { embed: vEmbed, row: vRow, luxuryTitle, parsed } = buildVehicleShowroom(item, isAvailable);
-                const vehicleEmoji = getVehicleEmoji(item.name, parsed.displayClass, item.specs);
-                const threadTitle = `${vehicleEmoji} ${luxuryTitle.toUpperCase()}`.slice(0, 100);
-                const appliedTags = getForumTagIds(availableTags, isAvailable, undefined, item.specs, item.name);
-
-                try {
-                  await channel.threads.create({
-                    name: threadTitle,
-                    message: { embeds: [vEmbed], components: [vRow] },
-                    appliedTags: appliedTags
-                  });
-                } catch (createErr) {
-                  console.error(`Erreur création thread forum pour ${item.name}:`, createErr.message);
-                }
-
-                await new Promise(r => setTimeout(r, 400));
-              }
-              updateBotPresence(client).catch(() => {});
-            })().catch(err => console.error('Background fleet sync error:', err.message));
+              await new Promise(r => setTimeout(r, 350));
+            }
           }
-          return;
+
+          return sendJSON(200, { success: true, count: vehicles.length, isForum });
         } catch (err) {
           return sendError(500, 'Erreur synchronisation flotte', err.message);
         }
@@ -1765,7 +1723,7 @@ function startApiServer(client, customPort = null) {
             await supabaseService.syncItemStatus('fleet', vehicleId, targetDbStatus).catch(() => {});
           }
 
-          const { embed: vEmbed, row: vRow, luxuryTitle, parsed } = buildVehicleShowroom(item, isAvailable);
+          const { embed: vEmbed, row: vRow, luxuryTitle } = buildVehicleShowroom(item, isAvailable);
           const isForum = channel.type === ChannelType.GuildForum;
 
           if (isForum) {
@@ -1782,8 +1740,7 @@ function startApiServer(client, customPort = null) {
                 await starter.edit({ embeds: [vEmbed], components: [vRow] }).catch(() => {});
               }
             } else {
-              const vehicleEmoji = getVehicleEmoji(item.name, parsed.displayClass, item.specs);
-              const threadTitle = `${vehicleEmoji} ${luxuryTitle.toUpperCase()}`.slice(0, 100);
+              const threadTitle = `🏎️ ${luxuryTitle.toUpperCase()}`.slice(0, 100);
               await channel.threads.create({
                 name: threadTitle,
                 message: { embeds: [vEmbed], components: [vRow] },
@@ -1826,59 +1783,55 @@ function startApiServer(client, customPort = null) {
 
           const resp = await supabaseService.supabaseRequest('suites?select=*&order=created_at.desc');
           const suites = Array.isArray(resp.data) ? resp.data : [];
+
           const isForum = channel.type === ChannelType.GuildForum;
-
-          sendJSON(200, { success: true, count: suites.length, isForum });
-
           if (isForum) {
-            (async () => {
-              let availableTags = channel.availableTags || [];
-              if (channel.setAvailableTags && (!availableTags || availableTags.length === 0)) {
-                try {
-                  await channel.setAvailableTags([
-                    { name: '🟢 Disponible', moderated: false },
-                    { name: '🔴 Occupée', moderated: false },
-                    { name: '🏰 Villa', moderated: false },
-                    { name: '🌆 Penthouse', moderated: false },
-                    { name: '🏨 Suite', moderated: false }
-                  ]).catch(() => {});
-                  const updatedCh = await client.channels.fetch(channelId).catch(() => null);
-                  if (updatedCh && updatedCh.availableTags) availableTags = updatedCh.availableTags;
-                } catch (e) {}
-              }
-
-              // Clean existing threads
+            let availableTags = channel.availableTags || [];
+            if (channel.setAvailableTags && (!availableTags || availableTags.length === 0)) {
               try {
-                const allThreads = await fetchAllForumThreads(channel);
-                for (const t of allThreads) {
-                  await t.delete().catch(() => {});
-                }
-              } catch (cleanErr) {}
+                await channel.setAvailableTags([
+                  { name: '🟢 Disponible', moderated: false },
+                  { name: '🔴 Occupée', moderated: false },
+                  { name: '🏰 Villa', moderated: false },
+                  { name: '🌆 Penthouse', moderated: false },
+                  { name: '🏨 Suite', moderated: false }
+                ]).catch(() => {});
+                const updatedCh = await client.channels.fetch(channelId).catch(() => null);
+                if (updatedCh && updatedCh.availableTags) availableTags = updatedCh.availableTags;
+              } catch (e) {}
+            }
 
-              // Create thread per suite
-              for (const item of suites) {
-                const isAvailable = (item.status === 'confirmed' || item.status === 'available');
-                const { embed: sEmbed, row: sRow, files: sFiles, suiteTitle } = await buildSuiteShowroom(item, isAvailable);
-                const suiteEmoji = getSuiteEmoji(suiteTitle, item.category);
-                const threadTitle = `${suiteEmoji} ${suiteTitle.toUpperCase()}`.slice(0, 100);
-                const appliedTags = getSuiteForumTagIds(availableTags, isAvailable, item.name, item.specs);
-
-                try {
-                  await channel.threads.create({
-                    name: threadTitle,
-                    message: { embeds: [sEmbed], files: sFiles || [], components: [sRow] },
-                    appliedTags: appliedTags
-                  });
-                } catch (createErr) {
-                  console.error(`Erreur création thread suite ${item.name}:`, createErr.message);
-                }
-
-                await new Promise(r => setTimeout(r, 400));
+            // Clean existing threads
+            try {
+              const allThreads = await fetchAllForumThreads(channel);
+              for (const t of allThreads) {
+                await t.delete().catch(() => {});
               }
-              updateBotPresence(client).catch(() => {});
-            })().catch(err => console.error('Background suites sync error:', err.message));
+            } catch (cleanErr) {}
+
+            // Create thread per suite
+            for (const item of suites) {
+              const isAvailable = (item.status === 'confirmed' || item.status === 'available');
+              const { embed: sEmbed, row: sRow, files: sFiles, suiteTitle } = await buildSuiteShowroom(item, isAvailable);
+              const threadTitle = `🏨 ${suiteTitle.toUpperCase()}`.slice(0, 100);
+              const appliedTags = getSuiteForumTagIds(availableTags, isAvailable, item.name, item.specs);
+
+              try {
+                await channel.threads.create({
+                  name: threadTitle,
+                  message: { embeds: [sEmbed], files: sFiles || [], components: [sRow] },
+                  appliedTags: appliedTags
+                });
+              } catch (createErr) {
+                console.error(`Erreur création thread suite ${item.name}:`, createErr.message);
+              }
+
+              await new Promise(r => setTimeout(r, 350));
+            }
           }
-          return;
+
+          updateBotPresence(client).catch(() => {});
+          return sendJSON(200, { success: true, count: suites.length, isForum });
         } catch (err) {
           return sendError(500, 'Erreur synchronisation suites hôtel', err.message);
         }
@@ -1927,8 +1880,7 @@ function startApiServer(client, customPort = null) {
                 await starter.edit({ embeds: [sEmbed], files: sFiles || [], components: [sRow] }).catch(() => {});
               }
             } else {
-              const suiteEmoji = getSuiteEmoji(suiteTitle, item.category);
-              const threadTitle = `${suiteEmoji} ${suiteTitle.toUpperCase()}`.slice(0, 100);
+              const threadTitle = `🏨 ${suiteTitle.toUpperCase()}`.slice(0, 100);
               await channel.threads.create({
                 name: threadTitle,
                 message: { embeds: [sEmbed], files: sFiles || [], components: [sRow] },

@@ -605,8 +605,18 @@ function startApiServer(client, customPort = null) {
       }
 
       try {
-        const guild = client.guilds.cache.get(config.GUILD_ID) || client.guilds.cache.first();
-        if (!guild) return sendError(503, 'Serveur Discord inaccessible');
+        const guild = client.guilds?.cache?.get(config.GUILD_ID) || client.guilds?.cache?.first() || (client.guilds?.fetch ? await client.guilds.fetch(config.GUILD_ID).catch(() => null) : null);
+        if (!guild) {
+          return sendJSON(200, {
+            onServer: false,
+            inGuild: false,
+            hasMembreRole: false,
+            hasCitoyenRole: false,
+            canContact: false,
+            nickname: null,
+            roles: []
+          });
+        }
 
         let member = await guild.members.fetch(discordId).catch(() => null);
 

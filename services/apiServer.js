@@ -25,7 +25,14 @@ const config = require('../config/constants');
 const ticketHandler = require('../handlers/ticketHandler');
 const supabaseService = require('./supabase');
 const { updateBotPresence } = require('../events/ready');
-const { formatLuxuryCarName, resolveVehiclePhotoUrl, resolveSuitePhotoUrl } = require('./vehicleUtils');
+const {
+  formatLuxuryCarName,
+  formatPrice,
+  getVehicleEmoji,
+  getSuiteEmoji,
+  resolveVehiclePhotoUrl,
+  resolveSuitePhotoUrl
+} = require('./vehicleUtils');
 
 // In-Memory Rate Limiting (bucketed : 'global', 'write', ...)
 const ipRateLimits = new Map();
@@ -343,39 +350,56 @@ function getSuiteForumTagIds(tags, isAvail, sName, sSpecs) {
 
 // Décode le champ specs JSON des véhicules ({ plate, class, specs_text })
 function parseVehicleSpecs(item) {
-  let displaySpecs = item.specs || '';
+  let displaySpecs = '';
   let displayPlate = 'LXS-RICH';
   let displayClass = 'SUPER';
-  try {
-    if (item.specs && item.specs.startsWith('{')) {
-      const meta = JSON.parse(item.specs);
-      displaySpecs = meta.specs_text || '';
-      displayPlate = meta.plate || 'LXS-RICH';
-      displayClass = meta.class || 'SUPER';
+  let mediaUrl = '';
+
+  if (item) {
+    if (item.specs && typeof item.specs === 'string' && item.specs.startsWith('{')) {
+      try {
+        const meta = JSON.parse(item.specs);
+        displaySpecs = meta.specs_text || meta.specs || '';
+        displayPlate = meta.plate || item.plate || 'LXS-RICH';
+        displayClass = meta.class || meta.category || item.category || 'SUPER';
+        mediaUrl = meta.media_url || '';
+      } catch (e) {}
+    } else if (item.specs && typeof item.specs === 'string') {
+      displaySpecs = item.specs;
     }
-  } catch (e) {}
-  return { displaySpecs, displayPlate, displayClass };
+
+    if (item.plate) displayPlate = item.plate;
+    if (item.category && (!displayClass || displayClass === 'SUPER')) displayClass = item.category.toUpperCase();
+    if (item.media_urls && !mediaUrl) mediaUrl = item.media_urls;
+  }
+
+  if (!displaySpecs) {
+    displaySpecs = `Gamme ${displayClass.toUpperCase()}`;
+  }
+
+  return { displaySpecs, displayPlate: displayPlate.toUpperCase(), displayClass: displayClass.toUpperCase(), mediaUrl };
 }
 
 // Embed + bouton showroom d'un véhicule (footer = ID Supabase, base du matching thread)
 function buildVehicleShowroom(item, isAvailable, { photoUrl, specsText, plate, vehicleClass } = {}) {
   const parsed = parseVehicleSpecs(item);
-  const specs = specsText !== undefined ? specsText : parsed.displaySpecs;
-  const displayPlate = plate !== undefined ? plate : parsed.displayPlate;
   const displayClass = vehicleClass !== undefined ? vehicleClass : parsed.displayClass;
+  const specs = specsText !== undefined ? specsText : (parsed.displaySpecs || `Gamme ${displayClass}`);
+  const displayPlate = plate !== undefined ? plate : parsed.displayPlate;
   const luxuryTitle = formatLuxuryCarName(item.name);
-  const resolvedPhoto = photoUrl !== undefined ? photoUrl : resolveVehiclePhotoUrl(item.name, item.specs);
+  const resolvedPhoto = photoUrl !== undefined ? photoUrl : resolveVehiclePhotoUrl(item.name, item.specs || item.media_urls || parsed.mediaUrl);
+  const formattedPrice = formatPrice(item.price, ' / j');
 
   const embed = new EmbedBuilder()
     .setColor(isAvailable ? 0x10B981 : 0xEF4444)
     .setTitle(`${isAvailable ? '🟢 DISPONIBLE' : '🔴 EN LOCATION'} • ${luxuryTitle.toUpperCase()}`)
     .addFields(
-      { name: '🏷️ Tarif Jour', value: `\`${item.price || 'Sur devis'}\``, inline: true },
+      { name: '🏷️ Tarif Jour', value: `\`${formattedPrice}\``, inline: true },
       { name: '🔢 Plaque', value: `\`${displayPlate}\``, inline: true },
       { name: '⚡ Catégorie', value: `\`${displayClass}\``, inline: true },
-      { name: '⚙️ Motorisation & Specs', value: specs || 'Motorisation préparée haute performance, finitions carbone et intérieur cuir sur mesure.', inline: false }
+      { name: '⚙️ Motorisation & Specs', value: specs || `Gamme ${displayClass}`, inline: false }
     )
-    .setFooter({ text: `ID: #${item.id.slice(0, 8).toUpperCase()} • Richman Estate Showroom` })
+    .setFooter({ text: `ID: #${(item.id || '').slice(0, 8).toUpperCase()} • Richman Estate Showroom` })
     .setImage(resolvedPhoto)
     .setTimestamp();
 
@@ -386,22 +410,26 @@ function buildVehicleShowroom(item, isAvailable, { photoUrl, specsText, plate, v
       .setURL(`${config.SITE_URL}/vehicules.html?select=${encodeURIComponent(String(item.name).toLowerCase().trim())}`)
   );
 
-  return { embed, row, luxuryTitle };
+  return { embed, row, luxuryTitle, parsed };
 }
 
 // Embed + bouton showroom d'une suite (footer = ID Supabase)
 async function buildSuiteShowroom(item, isAvailable, { photoUrl, specsText } = {}) {
-  const specs = specsText !== undefined ? specsText : (item.specs || '');
   const suiteTitle = String(item.name || 'Suite').trim();
+  const specs = specsText !== undefined ? specsText : (item.specs || 'Hébergement haut de gamme, service hôtelier d\'exception.');
   const resolvedPhoto = photoUrl !== undefined ? photoUrl : resolveSuitePhotoUrl(item.name, item.media_urls);
+  const formattedPrice = formatPrice(item.price, ' / nuit');
+  const categoryUpper = String(item.category || (suiteTitle.toLowerCase().includes('villa') ? 'VILLA' : suiteTitle.toLowerCase().includes('penthouse') ? 'PENTHOUSE' : 'SUITE')).toUpperCase();
+  const roomInfo = item.room_number ? (String(item.room_number).startsWith('#') ? String(item.room_number) : `#${item.room_number}`) : 'Richman Hills';
 
   const embed = new EmbedBuilder()
     .setColor(isAvailable ? 0x10B981 : 0xEF4444)
     .setTitle(`${isAvailable ? '🟢 DISPONIBLE' : '🔴 OCCUPÉE'} • ${suiteTitle.toUpperCase()}`)
     .addFields(
-      { name: '🏷️ Tarif Nuit', value: `\`${item.price || 'Sur devis'}\``, inline: true },
-      { name: '📍 Domaine', value: '`Richman Hills • Domaine Privé`', inline: true },
-      { name: '✨ Caractéristiques', value: specs || 'Hébergement haut de gamme, service hôtelier d\'exception.', inline: false }
+      { name: '🏷️ Tarif Nuit', value: `\`${formattedPrice}\``, inline: true },
+      { name: '📍 Emplacement', value: `\`${roomInfo} • Domaine Privé\``, inline: true },
+      { name: '⚡ Catégorie', value: `\`${categoryUpper}\``, inline: true },
+      { name: '✨ Caractéristiques & Confort', value: specs || 'Hébergement haut de gamme, room service et conciergerie 24/7.', inline: false }
     )
     .setFooter({ text: `ID: #${(item.id || '').slice(0, 8).toUpperCase()} • Richman Estate Hotel & Suites` })
     .setTimestamp();
@@ -1673,8 +1701,9 @@ function startApiServer(client, customPort = null) {
             // Create thread per vehicle
             for (const item of vehicles) {
               const isAvailable = item.status === 'confirmed';
-              const { embed: vEmbed, row: vRow, luxuryTitle } = buildVehicleShowroom(item, isAvailable);
-              const threadTitle = `🏎️ ${luxuryTitle.toUpperCase()}`.slice(0, 100);
+              const { embed: vEmbed, row: vRow, luxuryTitle, parsed } = buildVehicleShowroom(item, isAvailable);
+              const vehicleEmoji = getVehicleEmoji(item.name, parsed.displayClass, item.specs);
+              const threadTitle = `${vehicleEmoji} ${luxuryTitle.toUpperCase()}`.slice(0, 100);
               const appliedTags = getForumTagIds(availableTags, isAvailable, undefined, item.specs, item.name);
 
               try {
@@ -1723,7 +1752,7 @@ function startApiServer(client, customPort = null) {
             await supabaseService.syncItemStatus('fleet', vehicleId, targetDbStatus).catch(() => {});
           }
 
-          const { embed: vEmbed, row: vRow, luxuryTitle } = buildVehicleShowroom(item, isAvailable);
+          const { embed: vEmbed, row: vRow, luxuryTitle, parsed } = buildVehicleShowroom(item, isAvailable);
           const isForum = channel.type === ChannelType.GuildForum;
 
           if (isForum) {
@@ -1740,7 +1769,8 @@ function startApiServer(client, customPort = null) {
                 await starter.edit({ embeds: [vEmbed], components: [vRow] }).catch(() => {});
               }
             } else {
-              const threadTitle = `🏎️ ${luxuryTitle.toUpperCase()}`.slice(0, 100);
+              const vehicleEmoji = getVehicleEmoji(item.name, parsed.displayClass, item.specs);
+              const threadTitle = `${vehicleEmoji} ${luxuryTitle.toUpperCase()}`.slice(0, 100);
               await channel.threads.create({
                 name: threadTitle,
                 message: { embeds: [vEmbed], components: [vRow] },
@@ -1813,7 +1843,8 @@ function startApiServer(client, customPort = null) {
             for (const item of suites) {
               const isAvailable = (item.status === 'confirmed' || item.status === 'available');
               const { embed: sEmbed, row: sRow, files: sFiles, suiteTitle } = await buildSuiteShowroom(item, isAvailable);
-              const threadTitle = `🏨 ${suiteTitle.toUpperCase()}`.slice(0, 100);
+              const suiteEmoji = getSuiteEmoji(suiteTitle, item.category);
+              const threadTitle = `${suiteEmoji} ${suiteTitle.toUpperCase()}`.slice(0, 100);
               const appliedTags = getSuiteForumTagIds(availableTags, isAvailable, item.name, item.specs);
 
               try {
@@ -1880,7 +1911,8 @@ function startApiServer(client, customPort = null) {
                 await starter.edit({ embeds: [sEmbed], files: sFiles || [], components: [sRow] }).catch(() => {});
               }
             } else {
-              const threadTitle = `🏨 ${suiteTitle.toUpperCase()}`.slice(0, 100);
+              const suiteEmoji = getSuiteEmoji(suiteTitle, item.category);
+              const threadTitle = `${suiteEmoji} ${suiteTitle.toUpperCase()}`.slice(0, 100);
               await channel.threads.create({
                 name: threadTitle,
                 message: { embeds: [sEmbed], files: sFiles || [], components: [sRow] },

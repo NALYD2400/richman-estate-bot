@@ -82,12 +82,18 @@ if (!cleanToken) {
   process.exit(1);
 }
 
-console.log(`🔌 Connexion au Gateway Discord (Len: ${cleanToken.length}, Ends: ...${cleanToken.slice(-4)})...`);
-
-const directRest = new REST({ version: '10', timeout: 20000 }).setToken(cleanToken);
-directRest.get(Routes.gatewayBot())
-  .then(gw => console.log('📡 [REST Direct] Gateway info:', gw))
-  .catch(err => console.error('❌ [REST Direct] Erreur gatewayBot:', err.message));
+const https = require('https');
+const nativeReq = https.get('https://discord.com/api/v10/gateway/bot', {
+  headers: {
+    'Authorization': `Bot ${cleanToken}`,
+    'User-Agent': 'DiscordBot (https://richman-estate.vercel.app, 2.0.0)'
+  }
+}, res => {
+  let d = '';
+  res.on('data', c => d += c);
+  res.on('end', () => console.log('📡 [Native HTTPS] Gateway Bot Status:', res.statusCode, d));
+});
+nativeReq.on('error', e => console.error('❌ [Native HTTPS] Error:', e.message));
 
 client.login(cleanToken)
   .then(() => {

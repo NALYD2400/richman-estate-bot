@@ -30,6 +30,10 @@ const channelDeleteEvent = require('./events/channelDelete');
 
 // Initialisation du client Discord avec les intents requis
 const client = new Client({
+  rest: {
+    timeout: 20000,
+    retries: 3
+  },
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
@@ -47,7 +51,7 @@ const client = new Client({
   ]
 });
 
-const { Events } = require('discord.js');
+const { Events, REST, Routes } = require('discord.js');
 
 // Enregistrement dynamique des écouteurs d'événements
 client.once(Events.ClientReady, (...args) => readyEvent.execute(client, ...args));
@@ -79,6 +83,12 @@ if (!cleanToken) {
 }
 
 console.log(`🔌 Connexion au Gateway Discord (Len: ${cleanToken.length}, Ends: ...${cleanToken.slice(-4)})...`);
+
+const directRest = new REST({ version: '10', timeout: 20000 }).setToken(cleanToken);
+directRest.get(Routes.gatewayBot())
+  .then(gw => console.log('📡 [REST Direct] Gateway info:', gw))
+  .catch(err => console.error('❌ [REST Direct] Erreur gatewayBot:', err.message));
+
 client.login(cleanToken)
   .then(() => {
     console.log("✅ client.login() résolu avec succès");

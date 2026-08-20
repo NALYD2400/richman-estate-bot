@@ -58,13 +58,18 @@ try {
 
 // Connexion du bot à Discord
 if (!config.TOKEN) {
-  console.error("❌ DISCORD_TOKEN manquant dans le fichier .env !");
+  console.error("❌ DISCORD_TOKEN manquant dans la configuration !");
   process.exit(1);
 }
 
-client.login(config.TOKEN).catch(err => {
-  console.error("❌ Échec de connexion du bot Discord :", err.message);
-});
+console.log(`🔌 Connexion au Gateway Discord (Token : ${config.TOKEN.slice(0, 10)}...)...`);
+client.login(config.TOKEN)
+  .then(() => {
+    console.log("✅ client.login() résolu, en attente de l'événement ready...");
+  })
+  .catch(err => {
+    console.error("❌ Échec de connexion du bot Discord :", err.message);
+  });
 
 // Gestion des erreurs globales non interceptées
 process.on('unhandledRejection', (reason, promise) => {

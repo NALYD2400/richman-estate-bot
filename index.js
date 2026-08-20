@@ -41,12 +41,21 @@ const client = new Client({
   ]
 });
 
+const { Events } = require('discord.js');
+
 // Enregistrement dynamique des écouteurs d'événements
-client.once(readyEvent.name, (...args) => readyEvent.execute(client, ...args));
+client.once(Events.ClientReady, (...args) => readyEvent.execute(client, ...args));
 client.on(interactionCreateEvent.name, (...args) => interactionCreateEvent.execute(client, ...args));
 client.on(messageCreateEvent.name, (...args) => messageCreateEvent.execute(client, ...args));
 client.on(guildMemberAddEvent.name, (...args) => guildMemberAddEvent.execute(client, ...args));
 client.on(channelDeleteEvent.name, (...args) => channelDeleteEvent.execute(client, ...args));
+
+client.on('debug', info => console.log('🔍 [Discord Debug]:', info));
+client.on('error', error => console.error('❌ [Discord Client Error]:', error.message || error));
+client.on('shardError', (error, shardId) => console.error(`❌ [Shard ${shardId} Error]:`, error.message || error));
+client.on('shardDisconnect', (event, shardId) => console.warn(`⚠️ [Shard ${shardId} Disconnected]: Code ${event.code}`));
+client.on('shardReconnecting', shardId => console.log(`🔄 [Shard ${shardId}] Reconnexion en cours...`));
+client.on('shardResume', (shardId, replayedEvents) => console.log(`✅ [Shard ${shardId}] Reprise réussie (${replayedEvents} événements)`));
 
 // Démarrage du serveur REST API (port 3001) pour la communication Web <-> Discord
 let apiServer = null;
@@ -57,15 +66,16 @@ try {
 }
 
 // Connexion du bot à Discord
-if (!config.TOKEN) {
+const cleanToken = (config.TOKEN || '').trim();
+if (!cleanToken) {
   console.error("❌ DISCORD_TOKEN manquant dans la configuration !");
   process.exit(1);
 }
 
-console.log(`🔌 Connexion au Gateway Discord (Token : ${config.TOKEN.slice(0, 10)}...)...`);
-client.login(config.TOKEN)
+console.log(`🔌 Connexion au Gateway Discord (Len: ${cleanToken.length}, Ends: ...${cleanToken.slice(-4)})...`);
+client.login(cleanToken)
   .then(() => {
-    console.log("✅ client.login() résolu, en attente de l'événement ready...");
+    console.log("✅ client.login() résolu avec succès");
   })
   .catch(err => {
     console.error("❌ Échec de connexion du bot Discord :", err.message);

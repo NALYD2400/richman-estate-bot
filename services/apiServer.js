@@ -1655,72 +1655,75 @@ function startApiServer(client, customPort = null) {
 
           const resp = await supabaseService.supabaseRequest('vehicules?select=*&order=created_at.desc');
           const vehicles = Array.isArray(resp.data) ? resp.data : [];
-
           const isForum = channel.type === ChannelType.GuildForum;
 
+          sendJSON(200, { success: true, count: vehicles.length, isForum });
+
           if (isForum) {
-            try {
-              await channel.setDefaultForumLayout(ForumLayoutType.GalleryView).catch(() => {});
-            } catch (e) {}
-
-            let availableTags = channel.availableTags || [];
-            if (availableTags.length === 0) {
+            (async () => {
               try {
-                await channel.setAvailableTags([
-                  { name: '🟢 Disponible' },
-                  { name: '🔴 En Location' },
-                  { name: '⚡ Supercars' },
-                  { name: '🏎️ Sportives' },
-                  { name: '🏛️ Classiques' },
-                  { name: '🚙 SUV & 4x4' },
-                  { name: '💪 Muscle Cars' },
-                  { name: '👑 Prestige' },
-                  { name: '🚗 Voitures' },
-                  { name: '🏍️ Motos' },
-                  { name: '🛥️ Bateaux' },
-                  { name: '🚁 Hélicoptères' },
-                  { name: '✈️ Avions' }
-                ]);
-                const refetched = await client.channels.fetch(channelId);
-                availableTags = refetched.availableTags || [];
-              } catch (tagErr) {
-                console.warn("Could not set forum tags:", tagErr.message);
+                await channel.setDefaultForumLayout(ForumLayoutType.GalleryView).catch(() => {});
+              } catch (e) {}
+
+              let availableTags = channel.availableTags || [];
+              if (availableTags.length === 0) {
+                try {
+                  await channel.setAvailableTags([
+                    { name: '🟢 Disponible' },
+                    { name: '🔴 En Location' },
+                    { name: '⚡ Supercars' },
+                    { name: '🏎️ Sportives' },
+                    { name: '🏛️ Classiques' },
+                    { name: '🚙 SUV & 4x4' },
+                    { name: '💪 Muscle Cars' },
+                    { name: '👑 Prestige' },
+                    { name: '🚗 Voitures' },
+                    { name: '🏍️ Motos' },
+                    { name: '🛥️ Bateaux' },
+                    { name: '🚁 Hélicoptères' },
+                    { name: '✈️ Avions' }
+                  ]);
+                  const refetched = await client.channels.fetch(channelId);
+                  availableTags = refetched.availableTags || [];
+                } catch (tagErr) {
+                  console.warn("Could not set forum tags:", tagErr.message);
+                }
               }
-            }
 
-            // Clean existing threads
-            try {
-              const allThreads = await fetchAllForumThreads(channel);
-              for (const t of allThreads) {
-                await t.delete().catch(() => {});
-              }
-            } catch (cleanErr) {
-              console.warn("Clean forum threads warning:", cleanErr.message);
-            }
-
-            // Create thread per vehicle
-            for (const item of vehicles) {
-              const isAvailable = item.status === 'confirmed';
-              const { embed: vEmbed, row: vRow, luxuryTitle, parsed } = buildVehicleShowroom(item, isAvailable);
-              const vehicleEmoji = getVehicleEmoji(item.name, parsed.displayClass, item.specs);
-              const threadTitle = `${vehicleEmoji} ${luxuryTitle.toUpperCase()}`.slice(0, 100);
-              const appliedTags = getForumTagIds(availableTags, isAvailable, undefined, item.specs, item.name);
-
+              // Clean existing threads
               try {
-                await channel.threads.create({
-                  name: threadTitle,
-                  message: { embeds: [vEmbed], components: [vRow] },
-                  appliedTags: appliedTags
-                });
-              } catch (createErr) {
-                console.error(`Erreur création thread forum pour ${item.name}:`, createErr.message);
+                const allThreads = await fetchAllForumThreads(channel);
+                for (const t of allThreads) {
+                  await t.delete().catch(() => {});
+                }
+              } catch (cleanErr) {
+                console.warn("Clean forum threads warning:", cleanErr.message);
               }
 
-              await new Promise(r => setTimeout(r, 350));
-            }
+              // Create thread per vehicle
+              for (const item of vehicles) {
+                const isAvailable = item.status === 'confirmed';
+                const { embed: vEmbed, row: vRow, luxuryTitle, parsed } = buildVehicleShowroom(item, isAvailable);
+                const vehicleEmoji = getVehicleEmoji(item.name, parsed.displayClass, item.specs);
+                const threadTitle = `${vehicleEmoji} ${luxuryTitle.toUpperCase()}`.slice(0, 100);
+                const appliedTags = getForumTagIds(availableTags, isAvailable, undefined, item.specs, item.name);
+
+                try {
+                  await channel.threads.create({
+                    name: threadTitle,
+                    message: { embeds: [vEmbed], components: [vRow] },
+                    appliedTags: appliedTags
+                  });
+                } catch (createErr) {
+                  console.error(`Erreur création thread forum pour ${item.name}:`, createErr.message);
+                }
+
+                await new Promise(r => setTimeout(r, 400));
+              }
+              updateBotPresence(client).catch(() => {});
+            })().catch(err => console.error('Background fleet sync error:', err.message));
           }
-
-          return sendJSON(200, { success: true, count: vehicles.length, isForum });
+          return;
         } catch (err) {
           return sendError(500, 'Erreur synchronisation flotte', err.message);
         }
@@ -1813,56 +1816,59 @@ function startApiServer(client, customPort = null) {
 
           const resp = await supabaseService.supabaseRequest('suites?select=*&order=created_at.desc');
           const suites = Array.isArray(resp.data) ? resp.data : [];
-
           const isForum = channel.type === ChannelType.GuildForum;
+
+          sendJSON(200, { success: true, count: suites.length, isForum });
+
           if (isForum) {
-            let availableTags = channel.availableTags || [];
-            if (channel.setAvailableTags && (!availableTags || availableTags.length === 0)) {
-              try {
-                await channel.setAvailableTags([
-                  { name: '🟢 Disponible', moderated: false },
-                  { name: '🔴 Occupée', moderated: false },
-                  { name: '🏰 Villa', moderated: false },
-                  { name: '🌆 Penthouse', moderated: false },
-                  { name: '🏨 Suite', moderated: false }
-                ]).catch(() => {});
-                const updatedCh = await client.channels.fetch(channelId).catch(() => null);
-                if (updatedCh && updatedCh.availableTags) availableTags = updatedCh.availableTags;
-              } catch (e) {}
-            }
-
-            // Clean existing threads
-            try {
-              const allThreads = await fetchAllForumThreads(channel);
-              for (const t of allThreads) {
-                await t.delete().catch(() => {});
-              }
-            } catch (cleanErr) {}
-
-            // Create thread per suite
-            for (const item of suites) {
-              const isAvailable = (item.status === 'confirmed' || item.status === 'available');
-              const { embed: sEmbed, row: sRow, files: sFiles, suiteTitle } = await buildSuiteShowroom(item, isAvailable);
-              const suiteEmoji = getSuiteEmoji(suiteTitle, item.category);
-              const threadTitle = `${suiteEmoji} ${suiteTitle.toUpperCase()}`.slice(0, 100);
-              const appliedTags = getSuiteForumTagIds(availableTags, isAvailable, item.name, item.specs);
-
-              try {
-                await channel.threads.create({
-                  name: threadTitle,
-                  message: { embeds: [sEmbed], files: sFiles || [], components: [sRow] },
-                  appliedTags: appliedTags
-                });
-              } catch (createErr) {
-                console.error(`Erreur création thread suite ${item.name}:`, createErr.message);
+            (async () => {
+              let availableTags = channel.availableTags || [];
+              if (channel.setAvailableTags && (!availableTags || availableTags.length === 0)) {
+                try {
+                  await channel.setAvailableTags([
+                    { name: '🟢 Disponible', moderated: false },
+                    { name: '🔴 Occupée', moderated: false },
+                    { name: '🏰 Villa', moderated: false },
+                    { name: '🌆 Penthouse', moderated: false },
+                    { name: '🏨 Suite', moderated: false }
+                  ]).catch(() => {});
+                  const updatedCh = await client.channels.fetch(channelId).catch(() => null);
+                  if (updatedCh && updatedCh.availableTags) availableTags = updatedCh.availableTags;
+                } catch (e) {}
               }
 
-              await new Promise(r => setTimeout(r, 350));
-            }
+              // Clean existing threads
+              try {
+                const allThreads = await fetchAllForumThreads(channel);
+                for (const t of allThreads) {
+                  await t.delete().catch(() => {});
+                }
+              } catch (cleanErr) {}
+
+              // Create thread per suite
+              for (const item of suites) {
+                const isAvailable = (item.status === 'confirmed' || item.status === 'available');
+                const { embed: sEmbed, row: sRow, files: sFiles, suiteTitle } = await buildSuiteShowroom(item, isAvailable);
+                const suiteEmoji = getSuiteEmoji(suiteTitle, item.category);
+                const threadTitle = `${suiteEmoji} ${suiteTitle.toUpperCase()}`.slice(0, 100);
+                const appliedTags = getSuiteForumTagIds(availableTags, isAvailable, item.name, item.specs);
+
+                try {
+                  await channel.threads.create({
+                    name: threadTitle,
+                    message: { embeds: [sEmbed], files: sFiles || [], components: [sRow] },
+                    appliedTags: appliedTags
+                  });
+                } catch (createErr) {
+                  console.error(`Erreur création thread suite ${item.name}:`, createErr.message);
+                }
+
+                await new Promise(r => setTimeout(r, 400));
+              }
+              updateBotPresence(client).catch(() => {});
+            })().catch(err => console.error('Background suites sync error:', err.message));
           }
-
-          updateBotPresence(client).catch(() => {});
-          return sendJSON(200, { success: true, count: suites.length, isForum });
+          return;
         } catch (err) {
           return sendError(500, 'Erreur synchronisation suites hôtel', err.message);
         }

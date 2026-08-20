@@ -21,8 +21,8 @@
   "author": "NALYD / Richman Estate",
   "license": "MIT",
   "dependencies": {
-    "discord.js": "^14.14.1",
+    "discord.js": "^14.18.0",
     "dotenv": "^16.4.5",
-    "richman-estate-v3": "file:.."
+    "undici": "^6.21.1"
   }
 }

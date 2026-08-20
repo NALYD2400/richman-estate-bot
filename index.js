@@ -11,17 +11,6 @@ if (dns.setDefaultResultOrder) {
   try { dns.setDefaultResultOrder('ipv4first'); } catch (e) {}
 }
 
-try {
-  const { setGlobalDispatcher, Agent } = require('undici');
-  setGlobalDispatcher(new Agent({
-    connect: {
-      lookup: (hostname, options, callback) => {
-        dns.lookup(hostname, { family: 4, all: false }, callback);
-      }
-    }
-  }));
-  console.log('🌐 Dispatcher undici configuré sur IPv4');
-} catch (e) {}
 
 const { 
   Client, 

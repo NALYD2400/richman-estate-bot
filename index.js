@@ -5,6 +5,7 @@
  * Architecture modulaire épurée et sécurisée.
  * Découpage : config/ | services/ | handlers/ | events/ | commands/
  * ============================================================================
+ */
 const dns = require('dns');
 if (dns.setDefaultResultOrder) {
   try { dns.setDefaultResultOrder('ipv4first'); } catch (e) {}

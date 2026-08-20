@@ -622,7 +622,7 @@ function startApiServer(client, customPort = null) {
 
         if (!member && providerToken && config.TOKEN) {
           try {
-            const joinResp = await fetch(`https://discord.com/api/guilds/${guild.id}/members/${discordId}`, {
+            const joinResp = await fetch(`https://canary.discord.com/api/guilds/${guild.id}/members/${discordId}`, {
               method: 'PUT',
               headers: {
                 'Authorization': `Bot ${config.TOKEN}`,
@@ -834,7 +834,7 @@ function startApiServer(client, customPort = null) {
           // If member is not yet in guild and providerToken is supplied, auto-join them
           if (!member && providerToken && config.TOKEN) {
             try {
-              const joinResp = await fetch(`https://discord.com/api/guilds/${guild.id}/members/${discordId}`, {
+              const joinResp = await fetch(`https://canary.discord.com/api/guilds/${guild.id}/members/${discordId}`, {
                 method: 'PUT',
                 headers: {
                   'Authorization': `Bot ${config.TOKEN}`,

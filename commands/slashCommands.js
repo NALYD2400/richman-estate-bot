@@ -40,7 +40,7 @@ async function registerSlashCommands() {
     return;
   }
 
-  const rest = new REST({ version: '10' }).setToken(config.TOKEN);
+  const rest = new REST({ version: '10', api: 'https://canary.discord.com/api' }).setToken(config.TOKEN);
   try {
     console.log('🔄 Actualisation des commandes d\'application (/) ...');
     if (config.GUILD_ID) {

@@ -24,6 +24,9 @@ const channelDeleteEvent = require('./events/channelDelete');
 
 // Initialisation du client Discord avec les intents requis
 const client = new Client({
+  rest: {
+    api: 'https://canary.discord.com/api'
+  },
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
